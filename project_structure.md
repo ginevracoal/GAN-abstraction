@@ -1,0 +1,24 @@
+## Project structure
+
+- SSA/
+  - data/
+    - SIR/
+    - GRN/
+  - src/
+  - venv_ssa/
+  - requirements_ssa.txt
+  - .gitignore
+- GAN/
+  - data/
+    - SIR/
+    - GRN/
+  - src/
+  - venv_gan/
+  - .gitignore
+- evaluation/
+  - data/
+  - src/
+  - venv_eval/
+  - requirements_eval.txt
+  - .gitignore
+- plots
