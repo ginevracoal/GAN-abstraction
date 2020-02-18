@@ -14,6 +14,7 @@
     - GRN/
   - src/
   - venv_gan/
+  - requirements_gan.txt
   - .gitignore
 - evaluation/
   - data/

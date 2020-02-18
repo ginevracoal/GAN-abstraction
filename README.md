@@ -4,3 +4,6 @@
 
 Luca Bortolussi, Francesca Cairoli, Ginevra Carbone.
 
+- `SSA/` implements the simulation of trajectories
+- `GAN/` builds the model abstraction technique using a conditional GAN
+- `evaluation/` evaluates the generated trajectories 
