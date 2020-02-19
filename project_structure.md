@@ -6,17 +6,15 @@
     - GRN/
   - src/
   - requirements_ssa.txt
-  - .gitignore
 - GAN/
   - data/
     - SIR/
     - GRN/
   - src/
   - requirements_gan.txt
-  - .gitignore
 - evaluation/
   - data/
   - src/
   - requirements_eval.txt
-  - .gitignore
 - plots
+- .gitignore
