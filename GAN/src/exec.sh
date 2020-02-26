@@ -1,13 +1,12 @@
 #!/bin/bash
 
-N_TRAJ=100
-TIMESTEPS=128
-NOISE_TIMESTEPS=3
-BATCH_SIZE=25
-MODEL="SIR"
-EPOCHS=100
-LR=0.02
-
+N_TRAJ=30000
+TIMESTEPS=118
+NOISE_TIMESTEPS=5
+BATCH_SIZE=32
+MODEL="SIR" # SIR, eSIR
+EPOCHS=300
+GEN_EPOCHS=10
 
 ### launch from anywhere on server
 cd ~/GAN-abstraction/GAN/src/
@@ -23,7 +22,7 @@ mkdir -p $RESULTS
 OUT="${RESULTS}${TIME}_${DATASET_NAME}_out.txt"
 
 ## run script
-python3 gan_abstraction.py -n=$N_TRAJ -t=$TIMESTEPS --noise_timesteps=$NOISE_TIMESTEPS --batch_size=$BATCH_SIZE --model=$MODEL --epochs=$EPOCHS --lr=$LR &> $OUT
+python3 gan_abstraction.py -n=$N_TRAJ -t=$TIMESTEPS --noise_timesteps=$NOISE_TIMESTEPS --batch_size=$BATCH_SIZE --model=$MODEL --epochs=$EPOCHS --gen_epochs=$GEN_EPOCHS &> $OUT
 
 ## deactivate venv
 deactivate

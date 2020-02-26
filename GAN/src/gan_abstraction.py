@@ -109,7 +109,7 @@ class GAN_abstraction:
         model.compile(loss='binary_crossentropy', optimizer='adam')
         return model
 
-    def train(self, training_data, n_epochs, batch_size, noise_timesteps, trajectories_timesteps):
+    def train(self, training_data, n_epochs, gen_epochs, batch_size, noise_timesteps, trajectories_timesteps):
         trajectories, initial_states, params = training_data 
         n_batches = int(len(initial_states) / batch_size)+1
 
@@ -118,11 +118,16 @@ class GAN_abstraction:
         discriminator = self.discriminator(trajectories_timesteps=trajectories_timesteps)
         gan = self.gan(discriminator, generator)
 
+        g_loss=0
+        d_loss1=0
+        d_loss2=0
+        d_acc1=0
+        d_acc2=0
+
         start = time.time()
         for epoch in range(n_epochs):
+            
             for batch_idx in range(n_batches-1):
-
-                # batch selection
                 begin, end = batch_idx*batch_size, (batch_idx+1)*batch_size
                 traj = trajectories[begin:end,:,:]
                 init_states = initial_states[begin:end,:]
@@ -136,7 +141,7 @@ class GAN_abstraction:
                 y_train_fake = np.zeros(len(init_states))
                 d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], y_train_fake)
 
-                for _ in range(10):
+                for _ in range(gen_epochs):
                     noise = self.generate_noise(len(init_states), noise_timesteps)
                     g_loss = gan.train_on_batch(x=[noise, init_states, par], y=y_train_real)
 
@@ -148,8 +153,8 @@ class GAN_abstraction:
         execution_time(start=start, end=time.time())
 
         os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
-        filename = self.model+"_t="+str(self.timesteps)+"_noise-t="+str(self.noise_timesteps)+\
-                   "_lr="+str(lr)+"_epochs="+str(epochs)
+        filename = self.model+"_t="+str(self.timesteps)+"_noiset="+str(self.noise_timesteps)+\
+                   "_epochs="+str(n_epochs)
         discriminator.save(RESULTS+filename+"_discriminator.h5")
         generator.save(RESULTS+filename+"_generator.h5")
         return discriminator, generator
@@ -166,7 +171,8 @@ def main(args):
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
     gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
-              noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps)
+              noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps,
+              gen_epochs=args.gen_epochs)
     # discriminator, generator = gan.load(rel_path=RESULTS)
 
 
@@ -178,6 +184,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--model", default="SIR", type=str)
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--lr", default=0.002, type=float)
+    parser.add_argument("--gen_epochs", default=10, type=int)
 
     main(args=parser.parse_args())
