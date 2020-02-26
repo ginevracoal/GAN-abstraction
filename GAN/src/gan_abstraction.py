@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 from utils import load_from_pickle, execution_time
 import time
+from directories import *
+import os
 
 
 class GAN_abstraction:
@@ -12,6 +14,7 @@ class GAN_abstraction:
     def __init__(self, model, timesteps, noise_timesteps):
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
+        self.model = model
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/"):
         if model == "SIR":
@@ -120,10 +123,15 @@ class GAN_abstraction:
         print("\n")
         execution_time(start=start, end=time.time())
 
-        discriminator.save("discriminator.h5")
-        generator.save("generator.h5")
+        os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
+        discriminator.save(RESULTS+self.model+"_discriminator.h5")
+        generator.save(RESULTS+self.model+"_generator.h5")
         return discriminator, generator
 
+    def load(rel_path):
+        discriminator = keras.models.load_model(rel_path+self.model+"_discriminator.h5")
+        generator = keras.models.load_model(rel_path+self.model+"_generator.h5")
+        return discriminator, generator
 
 
 def main(args):
@@ -132,6 +140,7 @@ def main(args):
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
     gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
               noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps)
+    discriminator, generator = gan.load(rel_path=RESULTS)
 
 
 if __name__ == "__main__":

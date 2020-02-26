@@ -3,3 +3,4 @@ GAN/venv_gan/
 *data/
 *__pycache__/
 *.h5
+*results/
