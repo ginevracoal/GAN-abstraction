@@ -8,6 +8,7 @@ from utils import load_from_pickle, execution_time
 import time
 from directories import *
 import os
+import itertools
 
 
 class GAN_abstraction:
@@ -20,8 +21,12 @@ class GAN_abstraction:
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/"):
         if model == "SIR":
             filename = "SIR_training_set.pickle"
-        if model == "eSIR":
+        elif model == "eSIR":
             filename = "eSIR_training_set.pickle"
+        elif model == "Repress":
+            fiename = "Repressilator_training_set_indip_vars.pickle"
+        elif model == "Toggle":
+            filename = "ToggleSwitch_training_set_indip_vars.pickle"
 
         traj_simulations = load_from_pickle(path=path+filename)
         print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
@@ -153,8 +158,8 @@ class GAN_abstraction:
         execution_time(start=start, end=time.time())
 
         os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
-        filename = self.model+"_t="+str(self.timesteps)+"_noiset="+str(self.noise_timesteps)+\
-                   "_epochs="+str(n_epochs)
+        filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
+                   "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
         discriminator.save(RESULTS+filename+"_discriminator.h5")
         generator.save(RESULTS+filename+"_generator.h5")
         return discriminator, generator
@@ -165,15 +170,42 @@ class GAN_abstraction:
         return discriminator, generator
 
 
+def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, noise_timesteps):
+
+    gan = GAN_abstraction(model, timesteps, noise_timesteps)
+    training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
+    gan.train(training_data=training_data, n_epochs=epochs, batch_size=batch_size,
+              noise_timesteps=noise_timesteps, trajectories_timesteps=timesteps,
+              gen_epochs=gen_epochs)
+
+def grid_search(model, n_traj, batch_size):
+
+    print("\n == Grid search training == ")
+    from joblib import Parallel, delayed
+
+    epochs_list = [150,200,300]
+    gen_epochs_list = [5,10]
+    timesteps_list = [64,96,118]
+    noise_timesteps_list = [4,8,12]
+    combinations = list(itertools.product(epochs_list, gen_epochs_list, timesteps_list, noise_timesteps_list))
+
+    Parallel(n_jobs=10)(
+        delayed(_parallel_grid_search)(model, n_traj, batch_size, epochs, gen_epochs, timesteps, 
+                                       noise_timesteps)
+        for (epochs, gen_epochs, timesteps, noise_timesteps) in combinations)
+
+
 def main(args):
 
-    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps)
-    training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
+    # gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps)
+    # training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
-    gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
-              noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps,
-              gen_epochs=args.gen_epochs)
+    # gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
+    #           noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps,
+    #           gen_epochs=args.gen_epochs)
     # discriminator, generator = gan.load(rel_path=RESULTS)
+
+    grid_search(args.model, args.n_traj, args.batch_size)
 
 
 if __name__ == "__main__":
