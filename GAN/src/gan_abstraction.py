@@ -129,6 +129,12 @@ class GAN_abstraction:
         d_acc1=0
         d_acc2=0
 
+        g_loss_list=[]
+        d_loss1_list=[]
+        d_loss2_list=[]
+        d_acc1_list=[]
+        d_acc2_list=[]
+
         start = time.time()
         for epoch in range(n_epochs):
             
@@ -150,6 +156,12 @@ class GAN_abstraction:
                     noise = self.generate_noise(len(init_states), noise_timesteps)
                     g_loss = gan.train_on_batch(x=[noise, init_states, par], y=y_train_real)
 
+            d_loss1_list.append(d_loss1)
+            d_acc1_list.append(d_acc1)
+            d_loss2_list.append(d_loss2)
+            d_acc2_list.append(d_acc2)   
+            g_loss_list.append(g_loss)
+
             print(f"\n[Epoch {epoch + 1}]\t g_loss = {g_loss:.4f}", end="\t")
             print(f"d_loss1 = {d_loss1:.4f}\td_loss2 = {d_loss2:.4f}", end="\t")
             print(f"a1 = {int(100*d_acc1)}\ta2 = {int(100*d_acc2)}", end="\t")
@@ -162,6 +174,9 @@ class GAN_abstraction:
                    "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
         discriminator.save(RESULTS+filename+"_discriminator.h5")
         generator.save(RESULTS+filename+"_generator.h5")
+
+        plot_training(n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, d_acc2_list, filename)
+
         return discriminator, generator
 
     def load(rel_path):
@@ -170,13 +185,28 @@ class GAN_abstraction:
         return discriminator, generator
 
 
+def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
+
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
+    sns.lineplot(range(1, n_epochs+1), g_loss, label='Generator loss')
+    sns.lineplot(range(1, n_epochs+1), d_loss1, label='Discriminator loss real')
+    sns.lineplot(range(1, n_epochs+1), d_loss2, label='Discriminator loss gen')
+    sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real')
+    sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen')
+    plt.tight_layout()
+
+    os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
+    plt.savefig(RESULTS+filename+".png")
+
 def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, noise_timesteps):
 
     gan = GAN_abstraction(model, timesteps, noise_timesteps)
     training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
     gan.train(training_data=training_data, n_epochs=epochs, batch_size=batch_size,
-              noise_timesteps=noise_timesteps, trajectories_timesteps=timesteps,
-              gen_epochs=gen_epochs)
+              noise_timesteps=noise_timesteps, trajectories_timesteps=timesteps, gen_epochs=gen_epochs)
+
 
 def grid_search(model, n_traj, batch_size):
 
@@ -216,6 +246,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--model", default="SIR", type=str)
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--gen_epochs", default=10, type=int)
+    parser.add_argument("--gen_epochs", default=1, type=int)
 
     main(args=parser.parse_args())
