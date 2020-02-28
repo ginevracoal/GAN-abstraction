@@ -59,12 +59,14 @@ class GAN_abstraction:
 
 
 
-    def generator(self, timesteps, noise_timesteps):
+    def generator(self, timesteps, noise_timesteps, embed=False):
 
         noise = Input(shape=(noise_timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,noise])
+
+        # todo implement embedding option
         embedded_par = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
         inputs = Concatenate(axis=-1)([full_traj,embedded_par])
 
@@ -157,10 +159,10 @@ class GAN_abstraction:
                     g_loss = gan.train_on_batch(x=[noise, init_states, par], y=y_train_real)
 
             d_loss1_list.append(d_loss1)
-            d_acc1_list.append(d_acc1*100)
             d_loss2_list.append(d_loss2)
-            d_acc2_list.append(d_acc2*100)   
             g_loss_list.append(g_loss)
+            d_acc1_list.append(d_acc1*100)
+            d_acc2_list.append(d_acc2*100)   
 
             print(f"\n[Epoch {epoch + 1}]\t g_loss = {g_loss:.4f}", end="\t")
             print(f"d_loss1 = {d_loss1:.4f}\td_loss2 = {d_loss2:.4f}", end="\t")
@@ -254,12 +256,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
-    parser.add_argument("-n", "--n_traj", default=256, type=int)
+    parser.add_argument("-n", "--n_traj", default=1000, type=int)
     parser.add_argument("-t", "--timesteps", default=118, type=int)
     parser.add_argument("--noise_timesteps", default=5, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
-    parser.add_argument("--model", default="SIR", type=str)
-    parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--gen_epochs", default=1, type=int)
+    parser.add_argument("--model", default="eSIR", type=str)
+    parser.add_argument("--epochs", default=20, type=int)
+    parser.add_argument("--gen_epochs", default=5, type=int)
 
     main(args=parser.parse_args())

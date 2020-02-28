@@ -66,6 +66,7 @@ def evaluate(discriminator, generator, test_data, timesteps, noise_timesteps):
 	dist = np.empty(shape=(len(initial_states), timesteps, n_species))
 
 	for s, init_state in tqdm(enumerate(initial_states)):
+		print("\tinit_state = ", init_state)
 		state_trajectories = trajectories[s,:max_n_traj,:timesteps,:]
 		init_state = np.expand_dims(init_state, 1)
 		par = np.expand_dims(params[s,:], 0)
@@ -74,8 +75,9 @@ def evaluate(discriminator, generator, test_data, timesteps, noise_timesteps):
 			# print(noise.shape, init_state.shape, par.shape)
 			noise = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, 
 				                   n_species=n_species)
-			gen_traj[s, traj_idx, :, :] = generator.predict([noise, init_state, par])
-
+			generated_trajectories = np.squeeze(generator.predict([noise, init_state, par]))
+			gen_traj[s, traj_idx, :, :] = generated_trajectories
+					
 		for t in range(timesteps):
 			for m in range(n_species): 
 				hist = np.histogram(state_trajectories[:,t,m], bins=bins)
@@ -83,18 +85,17 @@ def evaluate(discriminator, generator, test_data, timesteps, noise_timesteps):
 				ssa_histograms_x[s, t, m, :] = hist[1]
 
 				hist = np.histogram(gen_traj[:,t,m], bins=bins)
-				ssa_histograms_count[s, t, m, :] = hist[0]
-				ssa_histograms_x[s, t, m, :] = hist[1]
+				gen_histograms_count[s, t, m, :] = hist[0]
+				gen_histograms_x[s, t, m, :] = hist[1]
 
 				dist[s, t, m] = wasserstein_distance(ssa_histograms_count[s,t,m,:], 
 				                                     gen_histograms_count[s,t,m,:]) 
 
 	print("\nhistograms shapes =", ssa_histograms_count.shape, ssa_histograms_x.shape)
-	print(ssa_histograms_count, gen_histograms_count)
 	print("distances shape =", dist.shape, "\n", dist)
 
 	return dist
-	
+
 
 def main(args):
 
