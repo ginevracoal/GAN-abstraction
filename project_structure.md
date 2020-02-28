@@ -2,21 +2,11 @@
 
 - SSA/
   - data/
-    - SIR/
-    - GRN/
   - src/
-  - requirements_ssa.txt
-  - .gitignore
+  - venv_ssa_requirements.txt
 - GAN/
   - data/
-    - SIR/
-    - GRN/
   - src/
-  - requirements_gan.txt
-  - .gitignore
-- evaluation/
-  - data/
-  - src/
-  - requirements_eval.txt
-  - .gitignore
+  - venv_gan_requirements.txt
 - plots
+- .gitignore
