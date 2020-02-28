@@ -1,7 +1,7 @@
 import argparse
 from tensorflow import keras
 from tensorflow.keras.layers import Input, Dense, Conv1D, LeakyReLU, Dropout, Concatenate, \
-                                    Embedding, Flatten, Reshape, RepeatVector
+                                    Embedding, Flatten, Reshape, RepeatVector, Permute
 from tensorflow.keras.models import Sequential, Model
 import numpy as np
 import tensorflow as tf
@@ -59,7 +59,7 @@ class GAN_abstraction:
 
 
 
-    def generator(self, noise_timesteps, trajectories_timesteps):
+    def generator(self, timesteps, noise_timesteps):
 
         noise = Input(shape=(noise_timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
@@ -73,22 +73,26 @@ class GAN_abstraction:
         x = Conv1D(128, 3)(x)
         x = LeakyReLU()(x)
         x = Flatten()(x)
-        x = Dense((trajectories_timesteps)*(self.n_species), activation="relu")(x)
-        outputs = Reshape((trajectories_timesteps, self.n_species))(x)
+        x = Dense((timesteps)*(self.n_species), activation="relu")(x)
+        outputs = Reshape((timesteps, self.n_species))(x)
 
         model = Model(inputs=[noise,init_states,par], outputs=outputs)
 
         return model
 
-    def discriminator(self, trajectories_timesteps):
+    def discriminator(self, timesteps, embed=False):
 
-        traj = Input(shape=(trajectories_timesteps, self.n_species)) 
+        traj = Input(shape=(timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,traj])
-        embedded_par = Reshape((trajectories_timesteps+1,1))(Dense((trajectories_timesteps+1))(par))
-        inputs = Concatenate(axis=-1)([full_traj,embedded_par])
 
+        if embed:
+            params = Reshape((timesteps+1,1))(Dense((timesteps+1))(par))
+        else:
+            params = Permute((1,2))(RepeatVector(timesteps+1)(par))
+        
+        inputs = Concatenate(axis=-1)([full_traj,params])
         x = Conv1D(64, 2)(inputs)
         x = LeakyReLU()(x)
         x = Conv1D(128, 3)(x)
@@ -111,13 +115,12 @@ class GAN_abstraction:
         model.compile(loss='binary_crossentropy', optimizer='adam')
         return model
 
-    def train(self, training_data, n_epochs, gen_epochs, batch_size, noise_timesteps, trajectories_timesteps):
+    def train(self, training_data, n_epochs, gen_epochs, batch_size, timesteps, noise_timesteps):
         trajectories, initial_states, params = training_data 
         n_batches = int(len(initial_states) / batch_size)+1
 
-        generator = self.generator(noise_timesteps=noise_timesteps, 
-                                   trajectories_timesteps=trajectories_timesteps)
-        discriminator = self.discriminator(trajectories_timesteps=trajectories_timesteps)
+        generator = self.generator(timesteps=timesteps, noise_timesteps=noise_timesteps)
+        discriminator = self.discriminator(timesteps=timesteps)
         gan = self.gan(discriminator, generator)
 
         g_loss=0
@@ -180,7 +183,7 @@ class GAN_abstraction:
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
                    "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
         discriminator = keras.models.load_model(rel_path+filename+"_discriminator.h5")
-        generator = keras.models.load_model(rel_path+filename+"_generator.h5")
+        generator = keras.models.load_model(rel_path+filename+"_generator.h5") 
         return discriminator, generator
 
 
@@ -189,61 +192,70 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
     import seaborn as sns
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(1,2)
+    fig, ax = plt.subplots(1,2,figsize=(12,6))
 
     sns.lineplot(range(1, n_epochs+1), g_loss, label='Generator loss', ax=ax[0])
     sns.lineplot(range(1, n_epochs+1), d_loss1, label='Discriminator loss real', ax=ax[0])
     sns.lineplot(range(1, n_epochs+1), d_loss2, label='Discriminator loss gen', ax=ax[0])
     sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real', ax=ax[1])
     sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen', ax=ax[1])
+
+    ax[0].set_yscale('log')
+    ax[0].set_ylabel("log(loss)")
+    ax[1].set_ylabel("accuracy")
     plt.tight_layout()
 
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
     plt.savefig(RESULTS+filename+".png")
+
+
+# === MAIN EXECUTIONS ===
+
 
 def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, noise_timesteps):
 
     gan = GAN_abstraction(model, timesteps, noise_timesteps)
     training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
     gan.train(training_data=training_data, n_epochs=epochs, batch_size=batch_size,
-              noise_timesteps=noise_timesteps, trajectories_timesteps=timesteps, gen_epochs=gen_epochs)
+              noise_timesteps=noise_timesteps, timesteps=timesteps, gen_epochs=gen_epochs)
 
 
-def grid_search(model, n_traj, batch_size):
+def grid_search(args):
 
     print("\n == Grid search training == ")
     from joblib import Parallel, delayed
 
     epochs_list = [150,200,300]
     gen_epochs_list = [5,10]
-    timesteps_list = [64,96,118]
     noise_timesteps_list = [4,8,12]
-    combinations = list(itertools.product(epochs_list, gen_epochs_list, timesteps_list, noise_timesteps_list))
+    combinations = list(itertools.product(epochs_list, gen_epochs_list, noise_timesteps_list))
 
     Parallel(n_jobs=10)(
-        delayed(_parallel_grid_search)(model, n_traj, batch_size, epochs, gen_epochs, timesteps, 
-                                       noise_timesteps)
-        for (epochs, gen_epochs, timesteps, noise_timesteps) in combinations)
+        delayed(_parallel_grid_search)(args.model, args.n_traj, args.batch_size, epochs, gen_epochs, 
+                                       args.timesteps, noise_timesteps)
+        for (epochs, gen_epochs, noise_timesteps) in combinations)
 
 
-def main(args):
-
-    # grid_search(args.model, args.n_traj, args.batch_size)
-    # exit()
+def full_gan_training(args):
 
     gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps)
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
     gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
-              noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps,
+              noise_timesteps=args.noise_timesteps, timesteps=args.timesteps,
               gen_epochs=args.gen_epochs)
 
+
+def main(args):
+
+    full_gan_training(args)
+    # grid_search(args)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("-n", "--n_traj", default=256, type=int)
-    parser.add_argument("-t", "--timesteps", default=64, type=int)
+    parser.add_argument("-t", "--timesteps", default=118, type=int)
     parser.add_argument("--noise_timesteps", default=5, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--model", default="SIR", type=str)
