@@ -1,10 +1,11 @@
 import argparse
+from tensorflow import keras
 from tensorflow.keras.layers import Input, Dense, Conv1D, LeakyReLU, Dropout, Concatenate, \
                                     Embedding, Flatten, Reshape, RepeatVector
 from tensorflow.keras.models import Sequential, Model
 import numpy as np
 import tensorflow as tf
-from utils import load_from_pickle, execution_time
+from utils import load_from_pickle, execution_time, generate_noise
 import time
 from directories import *
 import os
@@ -18,13 +19,13 @@ class GAN_abstraction:
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
 
-    def load_data(self, n_traj, model, timesteps, path="../../SSA/data/"):
+    def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
             filename = "SIR_training_set.pickle"
         elif model == "eSIR":
             filename = "eSIR_training_set.pickle"
         elif model == "Repress":
-            fiename = "Repressilator_training_set_indip_vars.pickle"
+            filename = "Repressilator_training_set_indip_vars.pickle"
         elif model == "Toggle":
             filename = "ToggleSwitch_training_set_indip_vars.pickle"
 
@@ -56,11 +57,7 @@ class GAN_abstraction:
     #     x_train = np.concatenate((full_trajectories, rep_params), axis=2)   
     #     return x_train
 
-    def generate_noise(self, batch_size, noise_timesteps):
-        if noise_timesteps > self.timesteps:
-            raise ValueError("noise_timesteps should be smaller than trajectories timesteps.")
-        noise = np.random.rand(batch_size, noise_timesteps, self.n_species)
-        return noise
+
 
     def generator(self, noise_timesteps, trajectories_timesteps):
 
@@ -147,19 +144,19 @@ class GAN_abstraction:
                 y_train_real = np.ones(len(init_states))
                 d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], y_train_real)
 
-                noise = self.generate_noise(len(init_states), noise_timesteps)
+                noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
                 gen_traj = generator.predict([noise, init_states, par])
                 y_train_fake = np.zeros(len(init_states))
                 d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], y_train_fake)
 
                 for _ in range(gen_epochs):
-                    noise = self.generate_noise(len(init_states), noise_timesteps)
+                    noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
                     g_loss = gan.train_on_batch(x=[noise, init_states, par], y=y_train_real)
 
             d_loss1_list.append(d_loss1)
-            d_acc1_list.append(d_acc1)
+            d_acc1_list.append(d_acc1*100)
             d_loss2_list.append(d_loss2)
-            d_acc2_list.append(d_acc2)   
+            d_acc2_list.append(d_acc2*100)   
             g_loss_list.append(g_loss)
 
             print(f"\n[Epoch {epoch + 1}]\t g_loss = {g_loss:.4f}", end="\t")
@@ -179,9 +176,11 @@ class GAN_abstraction:
 
         return discriminator, generator
 
-    def load(rel_path):
-        discriminator = keras.models.load_model(rel_path+self.model+"_discriminator.h5")
-        generator = keras.models.load_model(rel_path+self.model+"_generator.h5")
+    def load(self, rel_path, n_epochs, gen_epochs):
+        filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
+                   "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
+        discriminator = keras.models.load_model(rel_path+filename+"_discriminator.h5")
+        generator = keras.models.load_model(rel_path+filename+"_generator.h5")
         return discriminator, generator
 
 
@@ -190,11 +189,13 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
     import seaborn as sns
     import matplotlib.pyplot as plt
 
-    sns.lineplot(range(1, n_epochs+1), g_loss, label='Generator loss')
-    sns.lineplot(range(1, n_epochs+1), d_loss1, label='Discriminator loss real')
-    sns.lineplot(range(1, n_epochs+1), d_loss2, label='Discriminator loss gen')
-    sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real')
-    sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen')
+    fig, ax = plt.subplots(1,2)
+
+    sns.lineplot(range(1, n_epochs+1), g_loss, label='Generator loss', ax=ax[0])
+    sns.lineplot(range(1, n_epochs+1), d_loss1, label='Discriminator loss real', ax=ax[0])
+    sns.lineplot(range(1, n_epochs+1), d_loss2, label='Discriminator loss gen', ax=ax[0])
+    sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real', ax=ax[1])
+    sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen', ax=ax[1])
     plt.tight_layout()
 
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
@@ -227,15 +228,16 @@ def grid_search(model, n_traj, batch_size):
 
 def main(args):
 
-    # gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps)
-    # training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
+    # grid_search(args.model, args.n_traj, args.batch_size)
+    # exit()
 
-    # gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
-    #           noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps,
-    #           gen_epochs=args.gen_epochs)
-    # discriminator, generator = gan.load(rel_path=RESULTS)
+    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps)
+    training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
-    grid_search(args.model, args.n_traj, args.batch_size)
+    gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
+              noise_timesteps=args.noise_timesteps, trajectories_timesteps=args.timesteps,
+              gen_epochs=args.gen_epochs)
+
 
 
 if __name__ == "__main__":
