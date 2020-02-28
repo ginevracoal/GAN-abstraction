@@ -49,15 +49,6 @@ class GAN_abstraction:
 
         return trajectories, initial_states, params
 
-    # def reshape_training_data(self, trajectories, initial_states, params):
-    #     initial_states = np.expand_dims(initial_states, axis=1)
-    #     full_trajectories = np.concatenate((initial_states, trajectories), axis=1)
-    #     rep_params = np.repeat(params, full_trajectories.shape[1])
-    #     rep_params = np.reshape(rep_params, (params.shape[0], full_trajectories.shape[1], params.shape[1]))
-    #     x_train = np.concatenate((full_trajectories, rep_params), axis=2)   
-    #     return x_train
-
-
 
     def generator(self, timesteps, noise_timesteps, embed=False):
 
@@ -66,10 +57,12 @@ class GAN_abstraction:
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,noise])
 
-        # todo implement embedding option
-        embedded_par = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
-        inputs = Concatenate(axis=-1)([full_traj,embedded_par])
+        if embed:
+            params = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
+        else:
+            params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
 
+        inputs = Concatenate(axis=-1)([full_traj,params])
         x = Conv1D(64, 3)(inputs)
         x = LeakyReLU()(x)
         x = Conv1D(128, 3)(x)
@@ -250,14 +243,14 @@ def full_gan_training(args):
 
 def main(args):
 
-    full_gan_training(args)
-    # grid_search(args)
+    # full_gan_training(args)
+    grid_search(args)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("-n", "--n_traj", default=1000, type=int)
-    parser.add_argument("-t", "--timesteps", default=118, type=int)
+    parser.add_argument("-t", "--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=5, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--model", default="eSIR", type=str)
