@@ -1,4 +1,5 @@
 import pickle as pkl
+import numpy as np
 
 
 def save_to_pickle(data, relative_path, filename):
@@ -21,3 +22,6 @@ def execution_time(start, end):
     minutes, seconds = divmod(rem, 60)
     print("\nExecution time = {:0>2}:{:0>2}:{:0>2}".format(int(hours), int(minutes), int(seconds)))
 
+def generate_noise(batch_size, noise_timesteps, n_species):
+    noise = np.random.rand(batch_size, noise_timesteps, n_species)
+    return noise
