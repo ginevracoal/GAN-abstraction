@@ -4,3 +4,4 @@ GAN/venv_gan/
 *__pycache__/
 *.h5
 *results/
+*screenlog.0
