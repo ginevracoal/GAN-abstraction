@@ -21,7 +21,7 @@ class GAN_evaluator(GAN_abstraction):
 		                str(self.noise_timesteps)+"_epochs="+str(self.epochs)+\
 		                "_epochsGen="+str(self.gen_epochs)
 
-	def load(self, rel_path):
+	def load_gan(self, rel_path):
 		return super(GAN_evaluator, self).load(rel_path=rel_path, n_epochs=self.epochs, 
 			                                   gen_epochs=self.gen_epochs)
 
@@ -105,6 +105,10 @@ class GAN_evaluator(GAN_abstraction):
 		save_to_pickle(data=dist, relative_path=RESULTS, filename=self.filename+"_distances.pkl")
 		return dist
 
+	def load_distances(self, rel_path):
+		distances = load_from_pickle(path=rel_path+self.filename+"_distances.pkl")
+		print("\ndistances.shape =", distances.shape)
+		return distances
 
 	def plot_evolving_distributions(self, distances):
 		import seaborn as sns 
@@ -129,6 +133,31 @@ class GAN_evaluator(GAN_abstraction):
 		os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
 		plt.savefig(RESULTS+self.filename+"_evolving_dist.png")
 
+	def plot_distplots(self, distances):
+		import seaborn as sns 
+		import matplotlib.pyplot as plt
+
+		n_init_samples, n_timesteps, n_species = list(distances.shape)
+		chosen_timesteps = [0,int(n_timesteps/2),n_timesteps-1]
+		
+		fig, ax = plt.subplots(1,3,figsize=(12,6))
+
+		labels = ["S","I"]
+		for s in range(n_species):
+			timesteps = []
+			traj_values = []
+			for t_idx, t in enumerate(chosen_timesteps):
+				# [timesteps.append(t) for i in range(n_init_samples)]
+				# [traj_values.append(v) for v in distances[:,t,s]]
+			# print(len(timesteps), len(traj_values))
+				sns.distplot(distances[:,t,s], label=labels[s], ax=ax[t_idx], bins=10)
+				ax[t_idx].set_xlabel("timestep "+str(t))
+
+		plt.tight_layout()
+		os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
+		plt.savefig(RESULTS+self.filename+"_distplots.png")
+
+
 
 def main(args):
 
@@ -141,13 +170,15 @@ def main(args):
 		gan_eval = GAN_evaluator(model=args.model, timesteps=args.timesteps, 
 			                     noise_timesteps=noise_timesteps, epochs=epochs,
 			                     gen_epochs=gen_epochs)
-		discriminator, generator = gan_eval.load(rel_path=RESULTS)
+		discriminator, generator = gan_eval.load_gan(rel_path=RESULTS)
 		test_data = gan_eval.load_test_data(model=args.model)
 
-		dist = gan_eval.evaluate(discriminator=discriminator, generator=generator, 
+		distances = gan_eval.evaluate(discriminator=discriminator, generator=generator, 
 			                     test_data=test_data)
-
-		gan_eval.plot_evolving_distributions(dist)
+		# distances = gan_eval.load_distances(rel_path=RESULTS)
+		
+		gan_eval.plot_evolving_distributions(distances)
+		gan_eval.plot_distplots(distances)
 
 
 if __name__ == "__main__":
