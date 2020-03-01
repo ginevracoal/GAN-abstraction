@@ -132,6 +132,7 @@ class GAN_evaluator(GAN_abstraction):
 		plt.tight_layout()
 		os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
 		plt.savefig(RESULTS+self.filename+"_evolving_dist.png")
+		fig.close()
 
 	def plot_distplots(self, distances):
 		import seaborn as sns 
@@ -156,7 +157,7 @@ class GAN_evaluator(GAN_abstraction):
 		plt.tight_layout()
 		os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
 		plt.savefig(RESULTS+self.filename+"_distplots.png")
-
+		fig.close()
 
 
 def main(args):
