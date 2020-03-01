@@ -18,6 +18,7 @@ class GAN_abstraction:
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
+        self.embed=False
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -50,14 +51,14 @@ class GAN_abstraction:
         return trajectories, initial_states, params
 
 
-    def generator(self, timesteps, noise_timesteps, embed=False):
+    def generator(self, timesteps, noise_timesteps):
 
         noise = Input(shape=(noise_timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,noise])
 
-        if embed:
+        if self.embed:
             params = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
         else:
             params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
@@ -75,14 +76,14 @@ class GAN_abstraction:
 
         return model
 
-    def discriminator(self, timesteps, embed=False):
+    def discriminator(self, timesteps):
 
         traj = Input(shape=(timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,traj])
 
-        if embed:
+        if self.embed:
             params = Reshape((timesteps+1,1))(Dense((timesteps+1))(par))
         else:
             params = Permute((1,2))(RepeatVector(timesteps+1)(par))
@@ -140,12 +141,14 @@ class GAN_abstraction:
                 par = params[begin:end,:]
 
                 y_train_real = np.ones(len(init_states))
-                d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], y_train_real)
+                d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], 
+                                  y_train_real)
 
                 noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
                 gen_traj = generator.predict([noise, init_states, par])
                 y_train_fake = np.zeros(len(init_states))
-                d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], y_train_fake)
+                d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], 
+                                  y_train_fake)
 
                 for _ in range(gen_epochs):
                     noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
@@ -167,10 +170,13 @@ class GAN_abstraction:
         os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
                    "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
+        if self.embed:
+            filename=filename+"_embed"
         discriminator.save(RESULTS+filename+"_discriminator.h5")
         generator.save(RESULTS+filename+"_generator.h5")
 
-        plot_training(n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, d_acc2_list, filename)
+        plot_training(n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
+                      d_acc2_list, filename)
 
         return discriminator, generator
 
@@ -195,8 +201,8 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
     sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real', ax=ax[1])
     sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen', ax=ax[1])
 
-    ax[0].set_yscale('log')
-    ax[0].set_ylabel("log(loss)")
+    # ax[0].set_yscale('log')
+    ax[0].set_ylabel("loss")
     ax[1].set_ylabel("accuracy")
     plt.tight_layout()
 
@@ -226,8 +232,8 @@ def grid_search(args):
     combinations = list(itertools.product(epochs_list, gen_epochs_list, noise_timesteps_list))
 
     Parallel(n_jobs=10)(
-        delayed(_parallel_grid_search)(args.model, args.n_traj, args.batch_size, epochs, gen_epochs, 
-                                       args.timesteps, noise_timesteps)
+        delayed(_parallel_grid_search)(args.model, args.n_traj, args.batch_size, epochs, 
+                                       gen_epochs, args.timesteps, noise_timesteps)
         for (epochs, gen_epochs, noise_timesteps) in combinations)
 
 
