@@ -24,5 +24,5 @@ def execution_time(start, end):
     print("\nExecution time = {:0>2}:{:0>2}:{:0>2}".format(int(hours), int(minutes), int(seconds)))
 
 def generate_noise(batch_size, noise_timesteps, n_species):
-    noise = np.random.rand(batch_size, noise_timesteps, n_species)
+    noise = np.random.normal(loc=0., scale=1., size=(batch_size, noise_timesteps, n_species))
     return noise

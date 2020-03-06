@@ -1,5 +1,6 @@
 import argparse
 from tensorflow import keras
+from keras import backend as K
 from tensorflow.keras.layers import Input, Dense, Conv1D, LeakyReLU, Dropout, Concatenate, \
                                     Embedding, Flatten, Reshape, RepeatVector, Permute
 from tensorflow.keras.models import Sequential, Model
@@ -10,6 +11,7 @@ import time
 from directories import *
 import os
 import itertools
+
 
 
 class GAN_abstraction:
@@ -26,9 +28,9 @@ class GAN_abstraction:
         elif model == "eSIR":
             filename = "eSIR_training_set.pickle"
         elif model == "Repress":
-            filename = "Repressilator_training_set_indip_vars.pickle"
+            filename = "Repressilator_training_set.pickle"
         elif model == "Toggle":
-            filename = "ToggleSwitch_training_set_indip_vars.pickle"
+            filename = "ToggleSwitch_training_set.pickle"
 
         traj_simulations = load_from_pickle(path=path+filename)
         print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
@@ -71,7 +73,6 @@ class GAN_abstraction:
         x = Flatten()(x)
         x = Dense((timesteps)*(self.n_species), activation="relu")(x)
         outputs = Reshape((timesteps, self.n_species))(x)
-
         model = Model(inputs=[noise,init_states,par], outputs=outputs)
 
         return model
@@ -98,12 +99,16 @@ class GAN_abstraction:
         outputs = Dense(1, activation="sigmoid")(x)
 
         model = Model(inputs=[traj,init_states,par], outputs=outputs)
+
+        if model.trainable == False:
+            traj = K.round(traj)
+            model = Model(inputs=[traj,init_states,par], outputs=outputs)
+
         model.compile(loss='binary_crossentropy', optimizer="adam", metrics=['accuracy'])
         return model
 
     def gan(self, discriminator, generator): 
         discriminator.trainable = False
-
         noise, init_states, par = generator.input
         gen_traj = generator.output
         gan_output = discriminator([gen_traj, init_states, par])
@@ -133,6 +138,7 @@ class GAN_abstraction:
 
         start = time.time()
         for epoch in range(n_epochs):
+            epoch_start = time.time()
             
             for batch_idx in range(n_batches-1):
                 begin, end = batch_idx*batch_size, (batch_idx+1)*batch_size
@@ -146,6 +152,8 @@ class GAN_abstraction:
 
                 noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
                 gen_traj = generator.predict([noise, init_states, par])
+                gen_traj = K.round(gen_traj)
+
                 y_train_fake = np.zeros(len(init_states))
                 d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], 
                                   y_train_fake)
@@ -163,17 +171,22 @@ class GAN_abstraction:
             print(f"\n[Epoch {epoch + 1}]\t g_loss = {g_loss:.4f}", end="\t")
             print(f"d_loss1 = {d_loss1:.4f}\td_loss2 = {d_loss2:.4f}", end="\t")
             print(f"a1 = {int(100*d_acc1)}\ta2 = {int(100*d_acc2)}", end="\t")
+            print(f"time = {time.time()-epoch_start:.2f}", end="\t")
 
         print("\n")
         execution_time(start=start, end=time.time())
 
-        os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
+        os.makedirs(os.path.dirname(RESULTS+"gan_models/"), exist_ok=True)
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
                    "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
         if self.embed:
             filename=filename+"_embed"
-        discriminator.save(RESULTS+filename+"_discriminator.h5")
-        generator.save(RESULTS+filename+"_generator.h5")
+
+        print("\nSaving:")
+        print(RESULTS+"gan_models/"+filename+"_discriminator.h5")
+        print(RESULTS+"gan_models/"+filename+"_generator.h5")
+        discriminator.save(RESULTS+"gan_models/"+filename+"_discriminator.h5")
+        generator.save(RESULTS+"gan_models/"+filename+"_generator.h5")
 
         plot_training(n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
                       d_acc2_list, filename)
@@ -181,10 +194,11 @@ class GAN_abstraction:
         return discriminator, generator
 
     def load(self, rel_path, n_epochs, gen_epochs):
+        path = rel_path+"gan_models/"
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
                    "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
-        discriminator = keras.models.load_model(rel_path+filename+"_discriminator.h5")
-        generator = keras.models.load_model(rel_path+filename+"_generator.h5") 
+        discriminator = keras.models.load_model(path+filename+"_discriminator.h5")
+        generator = keras.models.load_model(path+filename+"_generator.h5") 
         return discriminator, generator
 
 
@@ -206,14 +220,15 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
     ax[1].set_ylabel("accuracy")
     plt.tight_layout()
 
-    os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
-    plt.savefig(RESULTS+filename+".png")
+    os.makedirs(os.path.dirname(RESULTS+"gan_models/"), exist_ok=True)
+    plt.savefig(RESULTS+"gan_models/"+filename+".png")
 
 
 # === MAIN EXECUTIONS ===
 
 
-def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, noise_timesteps):
+def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, 
+                          noise_timesteps):
 
     gan = GAN_abstraction(model, timesteps, noise_timesteps)
     training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
@@ -226,9 +241,12 @@ def grid_search(args):
     print("\n == Grid search training == ")
     from joblib import Parallel, delayed
 
-    epochs_list = [150,200,300]
-    gen_epochs_list = [5,10]
-    noise_timesteps_list = [4,8,12]
+    epochs_list = [50]
+    gen_epochs_list = [10]
+    noise_timesteps_list = [4,8]
+    print("epochs_list =", epochs_list)
+    print("gen_epochs_list =", gen_epochs_list)
+    print("noise_timesteps_list", noise_timesteps_list)
     combinations = list(itertools.product(epochs_list, gen_epochs_list, noise_timesteps_list))
 
     Parallel(n_jobs=10)(
@@ -255,10 +273,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
-    parser.add_argument("-n", "--n_traj", default=1000, type=int)
+    parser.add_argument("-n", "--n_traj", default=30000, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=5, type=int)
-    parser.add_argument("--batch_size", default=128, type=int)
+    parser.add_argument("--batch_size", default=512, type=int)
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("--epochs", default=20, type=int)
     parser.add_argument("--gen_epochs", default=5, type=int)

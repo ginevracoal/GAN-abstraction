@@ -8,6 +8,7 @@ from scipy.stats import wasserstein_distance
 from scipy.special import kl_div
 from tqdm import tqdm
 import os
+from keras import backend as K
 import itertools
 
 
@@ -33,9 +34,9 @@ class GAN_evaluator(GAN_abstraction):
 		elif model == "eSIR":
 			filename = "eSIR_test_set.pickle"
 		elif model == "Repress":
-			filename = "Repressilator_test_set_indip_vars.pickle"
+			filename = "Repressilator_test_set.pickle"
 		elif model == "Toggle":
-			filename = "ToggleSwitch_test_set_indip_vars.pickle"
+			filename = "ToggleSwitch_test_set.pickle"
 
 		traj_simulations = load_from_pickle(path=path+filename)
 		print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
@@ -110,7 +111,7 @@ class GAN_evaluator(GAN_abstraction):
 		              "gen_count":gen_histograms_count, "gen_x":gen_histograms_x,
 		              "wass_dist":dist}
 
-		save_to_pickle(data=histograms, relative_path=RESULTS+"evaluations/", 
+		save_to_pickle(data=distances, relative_path=RESULTS+"evaluations/", 
 			           filename=self.filename+"_"+str(bins)+"_distances.pkl")	
 		return distances
 
@@ -139,11 +140,9 @@ class GAN_evaluator(GAN_abstraction):
 		ax.set_xlabel("timesteps")
 		plt.tight_layout()
 
-		if self.n_traj > 1000:
-			os.makedirs(os.path.dirname(RESULTS+"plots/"), exist_ok=True)
-			plt.savefig(RESULTS+"plots/"+self.filename+"_evolving_dist.png")
-		fig.clf()
-
+		os.makedirs(os.path.dirname(RESULTS+"plots/"), exist_ok=True)
+		plt.savefig(RESULTS+"plots/"+self.filename+"_evolving_dist.png")
+		plt.close()
 
 # 	def plot_distances_distr(self, distances, species_labels):
 # 		import seaborn as sns 
@@ -174,14 +173,14 @@ class GAN_evaluator(GAN_abstraction):
 		trajectories, initial_states, params = test_data 
 		traj_per_state = trajectories.shape[1]
 		n_species = trajectories.shape[-1]
-		max_n_traj = int(traj_per_state/timesteps)*timesteps
+		# max_n_traj = int(traj_per_state/timesteps)*timesteps
 
 		print(f"\nComputing trajectories on {len(initial_states)} initial states")
-		gen_traj = np.empty(shape=(len(initial_states), max_n_traj, timesteps, n_species))
+		gen_traj = np.empty(shape=(len(initial_states), traj_per_state, timesteps, n_species))
 
 		for s, init_state in tqdm(enumerate(initial_states)):
 			print("\tinit_state = ", init_state)
-			ssa_trajectories = trajectories[s,:max_n_traj,:timesteps,:]
+			ssa_trajectories = trajectories[s,:,:timesteps,:]
 			init_state = np.expand_dims(init_state, 1)
 			par = np.expand_dims(params[s,:], 0)
 		
@@ -189,10 +188,11 @@ class GAN_evaluator(GAN_abstraction):
 				noise = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, 
 					                   n_species=n_species)
 				# print(noise.shape, init_state.shape, par.shape)
-				generated_trajectories = np.squeeze(generator.predict([noise, init_state, par]))
-				gen_traj[s, traj_idx, :, :] = generated_trajectories[:max_n_traj,:]
+				generated_trajectories = generator.predict([noise, init_state, par])
+				generated_trajectories = np.squeeze(np.round(generated_trajectories))
+				gen_traj[s, traj_idx, :, :] = generated_trajectories
 			
-		trajectories = {"ssa":trajectories[:,:max_n_traj,:timesteps,:], "gen": gen_traj}
+		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
 		save_to_pickle(data=trajectories, relative_path=RESULTS+"evaluations/", 
                        filename=self.filename+"_trajectories.pkl")	
 		return trajectories
@@ -205,38 +205,79 @@ class GAN_evaluator(GAN_abstraction):
 		print("trajectories['gen'].shape = ", trajectories["gen"].shape)
 		return trajectories
 
-	def plot_trajectories(self, trajectories, species_labels, bins=100):
+	def plot_trajectories(self, trajectories, n_traj=500):
 		import seaborn as sns 
 		import matplotlib.pyplot as plt
 
-		n_traj, traj_per_state, n_timesteps, n_species = trajectories["ssa"].shape
-		ssa_flat = trajectories["ssa"].reshape((n_traj*traj_per_state, n_timesteps, n_species))
-		gen_flat = trajectories["gen"].reshape((n_traj*traj_per_state, n_timesteps, n_species))
-
+		n_init_states, traj_per_state, n_timesteps, n_species = trajectories["ssa"].shape
 		chosen_timesteps = [0, int(n_timesteps/2), n_timesteps-1]
 		
-		fig, ax = plt.subplots(2,3,figsize=(12,6))
+		for init_state in range(n_init_states):
 
-		for s in range(n_species):
-			for t_idx, t in enumerate(chosen_timesteps):
-				sns.distplot(ssa_flat[:,t,s], label="SSA", ax=ax[s,t_idx], bins=bins)
-				sns.distplot(gen_flat[:,t,s], label="GEN", ax=ax[s,t_idx], bins=bins)
-				ax[s,t_idx].set_xlabel("timestep "+str(t))
+			fig, ax = plt.subplots(2,1,figsize=(12,6))
 
-		ax[0,0].legend()
-		ax[1,0].legend()
-		plt.tight_layout()
+			ssa_fixed_init = trajectories["ssa"][init_state]
+			gen_fixed_init = trajectories["gen"][init_state]
 
-		os.makedirs(os.path.dirname(RESULTS+"plots/"), exist_ok=True)
-		plt.savefig(RESULTS+"plots/"+self.filename+"_traj_distr.png")
-		fig.clf()
+			for s in range(n_species):
+				# print("\nssa: ", ssa_fixed_init[:10,:10,s])
+				# print("gen: ", gen_fixed_init[:10,:10,s])
+
+				for traj_idx in range(n_traj):
+					# print(gen_fixed_init[traj_idx,:,s].shape)
+					sns.lineplot(range(n_timesteps), ssa_fixed_init[traj_idx,:,s], ax=ax[s], 
+						         color="blue")
+					sns.lineplot(range(n_timesteps), gen_fixed_init[traj_idx,:,s], ax=ax[s], 
+						         color="orange")
+					ax[s].set_xlabel("timesteps")
+
+			# ax[0].legend()
+			# ax[1].legend()
+
+			os.makedirs(os.path.dirname(RESULTS+"plots/"), exist_ok=True)
+			plt.savefig(RESULTS+"plots/"+self.filename+"_generated_traj_"+str(init_state)+".png")
+			plt.close()
+
+	def plot_trajectories_dist(self, trajectories, bins=20):
+		import seaborn as sns 
+		import matplotlib.pyplot as plt
+
+		n_init_states, traj_per_state, n_timesteps, n_species = trajectories["ssa"].shape
+		ssa_flat = trajectories["ssa"].reshape((n_init_states*traj_per_state, n_timesteps, 
+			                                    n_species))
+		gen_flat = trajectories["gen"].reshape((n_init_states*traj_per_state, n_timesteps,
+		                                        n_species))
+		chosen_timesteps = [0, int(n_timesteps/2), n_timesteps-1]
+		
+		for init_state in range(n_init_states):
+
+			fig, ax = plt.subplots(2,3,figsize=(12,6))
+
+			ssa_fixed_init = trajectories["ssa"][init_state]
+			gen_fixed_init = trajectories["gen"][init_state]
+
+			for s in range(n_species):
+				for t_idx, t in enumerate(chosen_timesteps):
+					# print("\nssa: ", ssa_fixed_init[:100,t,s])
+					# print("gen: ", gen_fixed_init[:100,t,s])
+
+					sns.distplot(ssa_fixed_init[:,t,s], label="SSA", ax=ax[s,t_idx], kde=False, bins=bins)
+					sns.distplot(gen_fixed_init[:,t,s], label="GEN", ax=ax[s,t_idx], kde=False, bins=bins)
+					ax[s,t_idx].set_xlabel("timestep "+str(t))
+
+			ax[0,0].legend()
+			ax[1,0].legend()
+
+			os.makedirs(os.path.dirname(RESULTS+"plots/"), exist_ok=True)
+			plt.savefig(RESULTS+"plots/"+self.filename+"_traj_distr"+"_"+str(init_state)+".png")
+			plt.close()
 
 
 def main(args):
 
-	epochs_list = [150,200,300]
-	gen_epochs_list = [5,10]
-	noise_timesteps_list = [4,8,12]
+    epochs_list = [50]
+    gen_epochs_list = [10]
+    noise_timesteps_list = [4,8]
 	combinations = list(itertools.product(epochs_list, gen_epochs_list, 
 		                                  noise_timesteps_list))
 
@@ -245,23 +286,24 @@ def main(args):
 			                     noise_timesteps=noise_timesteps, epochs=epochs,
 			                     gen_epochs=gen_epochs, n_traj=args.n_traj)
 
-		# d, g = gan_eval.load_gan(rel_path=RESULTS)
-		# data = gan_eval.load_test_data(model=args.model)
-		# # distances = gan_eval.compute_distances(discriminator=d, generator=g, test_data=data)
-		# traj = gan_eval.compute_trajectories(discriminator=d, generator=g, test_data=data)
+		d, g = gan_eval.load_gan(rel_path=RESULTS)
+		data = gan_eval.load_test_data(model=args.model)
 		
-		traj = gan_eval.load_trajectories(rel_path=RESULTS)
-		gan_eval.plot_trajectories(trajectories=traj, species_labels=["S","I"])
+		traj = gan_eval.compute_trajectories(discriminator=d, generator=g, test_data=data)
+		# traj = gan_eval.load_trajectories(rel_path=RESULTS)
+		gan_eval.plot_trajectories(trajectories=traj)
+		gan_eval.plot_trajectories_dist(trajectories=traj)
 
-		# distances = gan_eval.load_distances(rel_path=RESULTS)
-		# gan_eval.plot_evolving_distances(distances["wass_dist"], species_labels=["S","I"])
-		# gan_eval.plot_distances_distr(histograms["wass_dist"], species_labels=["S","I"])
+		# distances = gan_eval.compute_distances(discriminator=d, generator=g, test_data=data)
+		# # distances = gan_eval.load_distances(rel_path=RESULTS)
+		# gan_eval.plot_evolving_distances(distances["wass_dist"], labels=["S","I"])
+		# # gan_eval.plot_distances_distr(histograms["wass_dist"])
 		# exit()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("--model", default="eSIR", type=str)
-    parser.add_argument("-n", "--n_traj", default=500, type=int)
+    parser.add_argument("-n", "--n_traj", default=2000, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
 
     main(args=parser.parse_args())
