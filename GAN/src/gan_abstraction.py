@@ -16,23 +16,27 @@ import itertools
 
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps):
+    def __init__(self, model, timesteps, noise_timesteps, embed=False, fixed_params=True):
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
-        self.embed=False
+        self.embed=embed
+        self.fixed_params=fixed_params
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
-            filename = "SIR_training_set.pickle"
+            filename = "SIR_training_set"
         elif model == "eSIR":
-            filename = "eSIR_training_set.pickle"
+            filename = "eSIR_training_set"
         elif model == "Repress":
-            filename = "Repressilator_training_set.pickle"
+            filename = "Repressilator_training_set"
         elif model == "Toggle":
-            filename = "ToggleSwitch_training_set.pickle"
+            filename = "ToggleSwitch_training_set"
 
-        traj_simulations = load_from_pickle(path=path+filename)
+        if self.fixed_params:
+            filename = filename+"_oneparam"
+
+        traj_simulations = load_from_pickle(path=path+filename+".pickle")
         print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
 
         trajectories = traj_simulations["X"][:n_traj,:timesteps,:]
@@ -50,6 +54,11 @@ class GAN_abstraction:
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
 
+        perm_idxs = np.random.permutation(len(trajectories))
+        trajectories = trajectories[perm_idxs]
+        initial_states = initial_states[perm_idxs]
+        params = params[perm_idxs]
+
         return trajectories, initial_states, params
 
 
@@ -60,12 +69,16 @@ class GAN_abstraction:
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,noise])
 
-        if self.embed:
-            params = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
-        else:
-            params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
+        if self.fixed_params is False:
+            if self.embed:
+                params = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
+            else:
+                params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
+            inputs = Concatenate(axis=-1)([full_traj,params])
 
-        inputs = Concatenate(axis=-1)([full_traj,params])
+        else:
+            inputs = full_traj
+
         x = Conv1D(64, 3)(inputs)
         x = LeakyReLU()(x)
         x = Conv1D(128, 3)(x)
@@ -73,8 +86,12 @@ class GAN_abstraction:
         x = Flatten()(x)
         x = Dense((timesteps)*(self.n_species), activation="relu")(x)
         outputs = Reshape((timesteps, self.n_species))(x)
-        model = Model(inputs=[noise,init_states,par], outputs=outputs)
 
+        if self.fixed_params is False:
+            model = Model(inputs=[noise,init_states,par], outputs=outputs)
+        else:
+            model = Model(inputs=[noise,init_states], outputs=outputs)
+        
         return model
 
     def discriminator(self, timesteps):
@@ -84,12 +101,18 @@ class GAN_abstraction:
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,traj])
 
-        if self.embed:
-            params = Reshape((timesteps+1,1))(Dense((timesteps+1))(par))
+        if self.fixed_params is False:
+
+            if self.embed:
+                params = Reshape((timesteps+1,1))(Dense((timesteps+1))(par))
+            else:
+                params = Permute((1,2))(RepeatVector(timesteps+1)(par))
+
+            inputs = Concatenate(axis=-1)([full_traj,params])
+
         else:
-            params = Permute((1,2))(RepeatVector(timesteps+1)(par))
+            inputs = full_traj
         
-        inputs = Concatenate(axis=-1)([full_traj,params])
         x = Conv1D(64, 2)(inputs)
         x = LeakyReLU()(x)
         x = Conv1D(128, 3)(x)
@@ -98,22 +121,41 @@ class GAN_abstraction:
         x = Dropout(0.3)(x)
         outputs = Dense(1, activation="sigmoid")(x)
 
-        model = Model(inputs=[traj,init_states,par], outputs=outputs)
+        if self.fixed_params is False:
+            model = Model(inputs=[traj,init_states,par], outputs=outputs)
+        else:
+            model = Model(inputs=[traj,init_states], outputs=outputs)
 
         if model.trainable == False:
             traj = K.round(traj)
-            model = Model(inputs=[traj,init_states,par], outputs=outputs)
+            
+            if self.fixed_params is False:
+                model = Model(inputs=[traj,init_states,par], outputs=outputs)
+            else:
+                model = Model(inputs=[traj,init_states], outputs=outputs)
 
-        model.compile(loss='binary_crossentropy', optimizer="adam", metrics=['accuracy'])
+        opt = keras.optimizers.Adam(lr=0.004)
+        model.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
         return model
 
     def gan(self, discriminator, generator): 
         discriminator.trainable = False
-        noise, init_states, par = generator.input
+        
+        if self.fixed_params is False:
+            noise, init_states, par = generator.input
+        else:
+            noise, init_states = generator.input
         gen_traj = generator.output
-        gan_output = discriminator([gen_traj, init_states, par])
-        model = Model(inputs=[noise, init_states, par], outputs=gan_output)
-        model.compile(loss='binary_crossentropy', optimizer='adam')
+
+        if self.fixed_params is False:
+            gan_output = discriminator([gen_traj, init_states, par])
+            model = Model(inputs=[noise, init_states, par], outputs=gan_output)
+        else:
+            gan_output = discriminator([gen_traj, init_states])
+            model = Model(inputs=[noise, init_states], outputs=gan_output)
+
+        opt = keras.optimizers.Adam(lr=0.0001)
+        model.compile(loss='binary_crossentropy', optimizer=opt)
         return model
 
     def train(self, training_data, n_epochs, gen_epochs, batch_size, timesteps, noise_timesteps):
@@ -179,8 +221,6 @@ class GAN_abstraction:
         os.makedirs(os.path.dirname(RESULTS+"gan_models/"), exist_ok=True)
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
                    "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
-        if self.embed:
-            filename=filename+"_embed"
 
         print("\nSaving:")
         print(RESULTS+"gan_models/"+filename+"_discriminator.h5")
@@ -228,9 +268,9 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
 
 
 def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, 
-                          noise_timesteps):
+                          noise_timesteps, embed, fixed_params):
 
-    gan = GAN_abstraction(model, timesteps, noise_timesteps)
+    gan = GAN_abstraction(model, timesteps, noise_timesteps, embed, fixed_params)
     training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
     gan.train(training_data=training_data, n_epochs=epochs, batch_size=batch_size,
               noise_timesteps=noise_timesteps, timesteps=timesteps, gen_epochs=gen_epochs)
@@ -251,13 +291,16 @@ def grid_search(args):
 
     Parallel(n_jobs=10)(
         delayed(_parallel_grid_search)(args.model, args.n_traj, args.batch_size, epochs, 
-                                       gen_epochs, args.timesteps, noise_timesteps)
-        for (epochs, gen_epochs, noise_timesteps) in combinations)
+                                       gen_epochs, args.timesteps, noise_timesteps,
+                                       args.embed, args.fixed_params)
+        for (epochs, gen_epochs, noise_timesteps, embed, fixed_params) in combinations)
 
 
 def full_gan_training(args):
 
-    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps)
+    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps,
+                          embed=args.embed, fixed_params=args.fixed_params)
+
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
     gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
@@ -267,18 +310,20 @@ def full_gan_training(args):
 
 def main(args):
 
-    # full_gan_training(args)
-    grid_search(args)
+    full_gan_training(args)
+    # grid_search(args)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("-n", "--n_traj", default=30000, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
-    parser.add_argument("--noise_timesteps", default=5, type=int)
     parser.add_argument("--batch_size", default=512, type=int)
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("--epochs", default=20, type=int)
     parser.add_argument("--gen_epochs", default=5, type=int)
+    parser.add_argument("--noise_timesteps", default=5, type=int)
+    parser.add_argument("--embed", default=False, type=bool)
+    parser.add_argument("--fixed_params", default=True, type=bool)
 
     main(args=parser.parse_args())
