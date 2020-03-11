@@ -2,7 +2,8 @@ import argparse
 from tensorflow import keras
 from keras import backend as K
 from tensorflow.keras.layers import Input, Dense, Conv1D, LeakyReLU, Dropout, Concatenate, \
-                                    Embedding, Flatten, Reshape, RepeatVector, Permute
+                                    Embedding, Flatten, Reshape, RepeatVector, Permute, \
+                                    SeparableConv1D, Lambda
 from tensorflow.keras.models import Sequential, Model
 import numpy as np
 import tensorflow as tf
@@ -16,13 +17,13 @@ import itertools
 
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps, embed=False, fixed_params=True):
+    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed):
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
         self.embed=embed
         self.fixed_params=fixed_params
-        self.round_traj = False
+        self.round_traj=True
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -73,23 +74,39 @@ class GAN_abstraction:
         par = Input(shape=(self.n_params,))
         full_traj = Concatenate(axis=1)([init_states,noise])
 
-        if self.fixed_params is False:
+        if self.fixed_params:
+            inputs = full_traj
+
+        else:
             if self.embed:
                 params = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
             else:
                 params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
             inputs = Concatenate(axis=-1)([full_traj,params])
 
-        else:
-            inputs = full_traj
+        # x = Conv1D(64, 3, padding="same")(inputs)
+        # x = LeakyReLU()(x)
+        # x = Conv1D(128, 3)(x)
+        # x = LeakyReLU()(x)
+        # x = Flatten()(x)
+        # x = Dense((timesteps)*(self.n_species), activation="relu")(x)
+        # outputs = Reshape((timesteps, self.n_species))(x)        
 
-        x = Conv1D(64, 3)(inputs)
-        x = LeakyReLU()(x)
-        x = Conv1D(128, 3)(x)
-        x = LeakyReLU()(x)
-        x = Flatten()(x)
-        x = Dense((timesteps)*(self.n_species), activation="relu")(x)
-        outputs = Reshape((timesteps, self.n_species))(x)
+        n_channels = inputs.shape[2]
+        inputs_list = []
+        for c in range(n_channels):
+            F = Lambda(lambda w: w[:,:,c])
+            x = F(inputs)
+            x = Reshape((inputs.shape[1],1))(x)
+            x = Conv1D(64, 3, padding="same")(x)
+            x = LeakyReLU()(x)
+            x = Conv1D(128, 3)(x)
+            x = LeakyReLU()(x)
+            x = Flatten()(x)
+            x = Dense((timesteps), activation="relu")(x)
+            inputs_list.append(x)
+        outputs_list = Concatenate(axis=-1)(inputs_list)
+        outputs = Reshape((timesteps, n_channels))(outputs_list)
 
         if self.fixed_params is False:
             model = Model(inputs=[noise,init_states,par], outputs=outputs)
@@ -117,12 +134,27 @@ class GAN_abstraction:
         else:
             inputs = full_traj
         
-        x = Conv1D(64, 2)(inputs)
-        x = LeakyReLU()(x)
-        x = Conv1D(128, 3)(x)
-        x = LeakyReLU()(x)
-        x = Flatten()(x)
-        x = Dropout(0.3)(x)
+        # x = Conv1D(64, 2)(inputs)
+        # x = LeakyReLU()(x)
+        # x = Conv1D(128, 3)(x)
+        # x = LeakyReLU()(x)
+        # x = Flatten()(x)
+        # x = Dropout(0.3)(x)
+        # outputs = Dense(1, activation="sigmoid")(x)
+
+        n_channels = inputs.shape[2]
+        inputs_list = []
+        for c in range(n_channels):
+            F = Lambda(lambda w: w[:,:,c])
+            x = F(inputs)
+            x = Conv1D(64, 2)(inputs)
+            x = LeakyReLU()(x)
+            x = Conv1D(128, 3)(x)
+            x = LeakyReLU()(x)
+            x = Flatten()(x)
+            x = Dropout(0.3)(x)
+            inputs_list.append(x)
+        outputs_list = Concatenate(axis=-1)(inputs_list)
         outputs = Dense(1, activation="sigmoid")(x)
 
         if self.fixed_params is False:
@@ -193,14 +225,22 @@ class GAN_abstraction:
                 init_states = initial_states[begin:end,:]
                 par = params[begin:end,:]
 
+
                 y_train_real = np.ones(len(init_states))
                 d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], 
                                   y_train_real)
 
                 noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
                 gen_traj = generator.predict([noise, init_states, par])
+
+                ## debug
+                # print(initial_states[:3])
+                # print(gen_traj[0][:2][:2])
+
                 if self.round_traj:
-                    gen_traj = K.round(gen_traj)
+                    gen_traj = np.round(gen_traj)
+
+                    # print(gen_traj[0][:2][:2])
 
                 y_train_fake = np.zeros(len(init_states))
                 d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], 
