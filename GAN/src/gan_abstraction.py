@@ -16,14 +16,20 @@ import itertools
 
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed, lr):
+    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed, lr, n_epochs, gen_epochs):
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
         self.embed=embed
         self.fixed_params=fixed_params
         self.lr=lr
+        self.n_epochs=n_epochs
+        self.gen_epochs=gen_epochs
         self.round_traj=True
+        self.architecture="lstm"
+
+        self.filename = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
+                        "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(lr)
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -83,29 +89,31 @@ class GAN_abstraction:
                 params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
             inputs = Concatenate(axis=-1)([full_traj,params])
 
-        # x = Conv1D(64, 3, padding="same")(inputs)
-        # x = LeakyReLU()(x)
-        # x = Conv1D(128, 3)(x)
-        # x = LeakyReLU()(x)
-        # x = Flatten()(x)
-        # x = Dense((timesteps)*(self.n_species), activation="relu")(x)
-        # outputs = Reshape((timesteps, self.n_species))(x)        
-
-        n_channels = inputs.shape[2]
-        inputs_list = []
-        for c in range(n_channels):
-            F = Lambda(lambda w: w[:,:,c])
-            x = F(inputs)
-            x = Reshape((inputs.shape[1],1))(x)
-            x = Conv1D(64, 3, padding="same")(x)
+        if self.architecture == "basic_convolution":
+            x = Conv1D(64, 3, padding="same")(inputs)
             x = LeakyReLU()(x)
             x = Conv1D(128, 3)(x)
             x = LeakyReLU()(x)
             x = Flatten()(x)
-            x = Dense((timesteps), activation="relu")(x)
-            inputs_list.append(x)
-        outputs_list = Concatenate(axis=-1)(inputs_list)
-        outputs = Reshape((timesteps, n_channels))(outputs_list)
+            x = Dense((timesteps)*(self.n_species), activation="relu")(x)
+            outputs = Reshape((timesteps, self.n_species))(x)    
+
+        elif self.architecture == "channel_wise_convolution":
+            n_channels = inputs.shape[2]
+            inputs_list = []
+            for c in range(n_channels):
+                select_channel = Lambda(lambda w: w[:,:,c])
+                x = select_channel(inputs)
+                x = Reshape((inputs.shape[1],1))(x)
+                x = Conv1D(64, 3, padding="same")(x)
+                x = LeakyReLU()(x)
+                x = Conv1D(128, 3)(x)
+                x = LeakyReLU()(x)
+                x = Flatten()(x)
+                x = Dense((timesteps), activation="relu")(x)
+                inputs_list.append(x)
+            outputs_list = Concatenate(axis=-1)(inputs_list)
+            outputs = Reshape((timesteps, n_channels))(outputs_list)
 
         if self.fixed_params is False:
             model = Model(inputs=[noise,init_states,par], outputs=outputs)
@@ -132,29 +140,31 @@ class GAN_abstraction:
 
         else:
             inputs = full_traj
-        
-        # x = Conv1D(64, 2)(inputs)
-        # x = LeakyReLU()(x)
-        # x = Conv1D(128, 3)(x)
-        # x = LeakyReLU()(x)
-        # x = Flatten()(x)
-        # x = Dropout(0.3)(x)
-        # outputs = Dense(1, activation="sigmoid")(x)
 
-        n_channels = inputs.shape[2]
-        inputs_list = []
-        for c in range(n_channels):
-            F = Lambda(lambda w: w[:,:,c])
-            x = F(inputs)
+        if self.architecture == "basic_convolution":
             x = Conv1D(64, 2)(inputs)
             x = LeakyReLU()(x)
-            # x = Conv1D(128, 3)(x)
-            # x = LeakyReLU()(x)
+            x = Conv1D(128, 3)(x)
+            x = LeakyReLU()(x)
             x = Flatten()(x)
             x = Dropout(0.3)(x)
-            inputs_list.append(x)
-        outputs_list = Concatenate(axis=-1)(inputs_list)
-        outputs = Dense(1, activation="sigmoid")(x)
+            outputs = Dense(1, activation="sigmoid")(x)
+        
+        elif self.architecture == "channel_wise_convolution":
+            n_channels = inputs.shape[2]
+            inputs_list = []
+            for c in range(n_channels):
+                select_channel = Lambda(lambda w: w[:,:,c])
+                x = select_channel(inputs)
+                x = Conv1D(64, 3)(inputs)
+                x = LeakyReLU()(x)
+                # x = Conv1D(128, 3)(x)
+                # x = LeakyReLU()(x)
+                x = Flatten()(x)
+                x = Dropout(0.3)(x)
+                inputs_list.append(x)
+            outputs_list = Concatenate(axis=-1)(inputs_list)
+            outputs = Dense(1, activation="sigmoid")(x)
 
         if self.fixed_params is False:
             model = Model(inputs=[traj,init_states,par], outputs=outputs)
@@ -170,7 +180,7 @@ class GAN_abstraction:
             else:
                 model = Model(inputs=[traj,init_states], outputs=outputs)
 
-        opt = keras.optimizers.Adam(lr=0.0001)
+        opt = keras.optimizers.Adam(lr=self.lr)
         model.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
         return model
 
@@ -190,16 +200,16 @@ class GAN_abstraction:
             gan_output = discriminator([gen_traj, init_states])
             model = Model(inputs=[noise, init_states], outputs=gan_output)
 
-        opt = keras.optimizers.Adam(lr=self.lr)
+        opt = keras.optimizers.Adam(lr=0.0001)
         model.compile(loss='binary_crossentropy', optimizer=opt)
         return model
 
-    def train(self, training_data, n_epochs, gen_epochs, batch_size, timesteps, noise_timesteps):
+    def train(self, training_data, batch_size):
         trajectories, initial_states, params = training_data 
         n_batches = int(len(initial_states) / batch_size)+1
 
-        generator = self.generator(timesteps=timesteps, noise_timesteps=noise_timesteps)
-        discriminator = self.discriminator(timesteps=timesteps)
+        generator = self.generator(timesteps=self.timesteps, noise_timesteps=self.noise_timesteps)
+        discriminator = self.discriminator(timesteps=self.timesteps)
         gan = self.gan(discriminator, generator)
 
         g_loss=0
@@ -215,7 +225,7 @@ class GAN_abstraction:
         d_acc2_list=[]
 
         start = time.time()
-        for epoch in range(n_epochs):
+        for epoch in range(self.n_epochs):
             epoch_start = time.time()
 
             perm_idxs = np.random.permutation(len(trajectories))
@@ -233,7 +243,7 @@ class GAN_abstraction:
                 d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], 
                                   y_train_real)
 
-                noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
+                noise = generate_noise(len(init_states), self.noise_timesteps, self.n_species)
                 gen_traj = generator.predict([noise, init_states, par])
 
                 ## debug
@@ -249,8 +259,8 @@ class GAN_abstraction:
                 d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], 
                                   y_train_fake)
 
-                for _ in range(gen_epochs):
-                    noise = generate_noise(len(init_states), noise_timesteps, self.n_species)
+                for _ in range(self.gen_epochs):
+                    noise = generate_noise(len(init_states), self.noise_timesteps, self.n_species)
                     g_loss = gan.train_on_batch(x=[noise, init_states, par], y=y_train_real)
 
             d_loss1_list.append(d_loss1)
@@ -267,27 +277,22 @@ class GAN_abstraction:
         print("\n")
         execution_time(start=start, end=time.time())
 
-        os.makedirs(os.path.dirname(RESULTS+"gan_models/"), exist_ok=True)
-        filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
-                   "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(self.lr)
-
+        os.makedirs(os.path.dirname(RESULTS+"trained_models/"), exist_ok=True)
         print("\nSaving:")
-        print(RESULTS+"gan_models/"+filename+"_discriminator.h5")
-        print(RESULTS+"gan_models/"+filename+"_generator.h5")
-        discriminator.save(RESULTS+"gan_models/"+filename+"_discriminator.h5")
-        generator.save(RESULTS+"gan_models/"+filename+"_generator.h5")
+        print(RESULTS+"trained_models/"+self.filename+"_discriminator.h5")
+        print(RESULTS+"trained_models/"+self.filename+"_generator.h5")
+        discriminator.save(RESULTS+"trained_models/"+self.filename+"_discriminator.h5")
+        generator.save(RESULTS+"trained_models/"+self.filename+"_generator.h5")
 
-        plot_training(n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
-                      d_acc2_list, filename)
+        plot_training(self.n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
+                      d_acc2_list, self.filename)
 
         return discriminator, generator
 
     def load(self, rel_path, n_epochs, gen_epochs):
-        path = rel_path+"gan_models/"
-        filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
-                   "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(self.lr)
-        discriminator = keras.models.load_model(path+filename+"_discriminator.h5")
-        generator = keras.models.load_model(path+filename+"_generator.h5") 
+        path = rel_path+"trained_models/"
+        discriminator = keras.models.load_model(path+self.filename+"_discriminator.h5")
+        generator = keras.models.load_model(path+self.filename+"_generator.h5") 
         return discriminator, generator
 
 
@@ -304,25 +309,25 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
     sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real', ax=ax[1])
     sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen', ax=ax[1])
 
-    # ax[0].set_yscale('log')
     ax[0].set_ylabel("loss")
     ax[1].set_ylabel("accuracy")
     plt.tight_layout()
 
-    os.makedirs(os.path.dirname(RESULTS+"gan_models/"), exist_ok=True)
-    plt.savefig(RESULTS+"gan_models/"+filename+".png")
+    os.makedirs(os.path.dirname(RESULTS+"trained_models/"), exist_ok=True)
+    plt.savefig(RESULTS+"trained_models/"+filename+".png")
 
 
 # === MAIN EXECUTIONS ===
 
 
 def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, 
-                          noise_timesteps, embed, fixed_params):
+                          noise_timesteps, embed, fixed_params, lr):
 
-    gan = GAN_abstraction(model, timesteps, noise_timesteps, embed, fixed_params)
+    gan = GAN_abstraction(model=model,timesteps=timesteps, noise_timesteps=noise_timesteps, lr=lr, 
+                          n_epochs=epochs, gen_epochs=args.gen_epochs, embed=embed, 
+                          fixed_params=fixed_params)
     training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
-    gan.train(training_data=training_data, n_epochs=epochs, batch_size=batch_size,
-              noise_timesteps=noise_timesteps, timesteps=timesteps, gen_epochs=gen_epochs)
+    gan.train(training_data=training_data,batch_size=batch_size)
 
 
 def grid_search(args):
@@ -347,14 +352,12 @@ def grid_search(args):
 
 def full_gan_training(args):
 
-    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr,
-                          embed=args.embed, fixed_params=args.fixed_params)
+    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr, n_epochs=args.epochs,
+                          gen_epochs=args.gen_epochs, embed=args.embed, fixed_params=args.fixed_params)
 
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
-    gan.train(training_data=training_data, n_epochs=args.epochs, batch_size=args.batch_size,
-              noise_timesteps=args.noise_timesteps, timesteps=args.timesteps,
-              gen_epochs=args.gen_epochs)
+    gan.train(training_data=training_data,  batch_size=args.batch_size)
 
 
 def main(args):
