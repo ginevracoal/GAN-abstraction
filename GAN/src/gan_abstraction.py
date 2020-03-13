@@ -14,15 +14,15 @@ import os
 import itertools
 
 
-
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed):
+    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed, lr):
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
         self.embed=embed
         self.fixed_params=fixed_params
+        self.lr=lr
         self.round_traj=True
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
@@ -56,13 +56,12 @@ class GAN_abstraction:
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
 
-        perm_idxs = np.random.permutation(len(trajectories))
-        trajectories = trajectories[perm_idxs]
-        initial_states = initial_states[perm_idxs]
-        params = params[perm_idxs]
-
         # [print(initial_states[i], params[i]) for i in range(50)]
         # exit()
+
+        trajectories = tf.keras.utils.normalize(trajectories, axis=-1, order=2)
+        initial_states = tf.keras.utils.normalize(initial_states, axis=-1, order=2)
+        params = tf.keras.utils.normalize(params, axis=-1, order=2)
 
         return trajectories, initial_states, params
 
@@ -149,8 +148,8 @@ class GAN_abstraction:
             x = F(inputs)
             x = Conv1D(64, 2)(inputs)
             x = LeakyReLU()(x)
-            x = Conv1D(128, 3)(x)
-            x = LeakyReLU()(x)
+            # x = Conv1D(128, 3)(x)
+            # x = LeakyReLU()(x)
             x = Flatten()(x)
             x = Dropout(0.3)(x)
             inputs_list.append(x)
@@ -171,7 +170,7 @@ class GAN_abstraction:
             else:
                 model = Model(inputs=[traj,init_states], outputs=outputs)
 
-        opt = keras.optimizers.Adam(lr=0.004)
+        opt = keras.optimizers.Adam(lr=0.0001)
         model.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
         return model
 
@@ -191,7 +190,7 @@ class GAN_abstraction:
             gan_output = discriminator([gen_traj, init_states])
             model = Model(inputs=[noise, init_states], outputs=gan_output)
 
-        opt = keras.optimizers.Adam(lr=0.0001)
+        opt = keras.optimizers.Adam(lr=self.lr)
         model.compile(loss='binary_crossentropy', optimizer=opt)
         return model
 
@@ -218,13 +217,17 @@ class GAN_abstraction:
         start = time.time()
         for epoch in range(n_epochs):
             epoch_start = time.time()
+
+            perm_idxs = np.random.permutation(len(trajectories))
+            trajectories = trajectories[perm_idxs]
+            initial_states = initial_states[perm_idxs]
+            params = params[perm_idxs]
             
             for batch_idx in range(n_batches-1):
                 begin, end = batch_idx*batch_size, (batch_idx+1)*batch_size
                 traj = trajectories[begin:end,:,:]
                 init_states = initial_states[begin:end,:]
                 par = params[begin:end,:]
-
 
                 y_train_real = np.ones(len(init_states))
                 d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], 
@@ -266,7 +269,7 @@ class GAN_abstraction:
 
         os.makedirs(os.path.dirname(RESULTS+"gan_models/"), exist_ok=True)
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
-                   "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
+                   "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(self.lr)
 
         print("\nSaving:")
         print(RESULTS+"gan_models/"+filename+"_discriminator.h5")
@@ -282,7 +285,7 @@ class GAN_abstraction:
     def load(self, rel_path, n_epochs, gen_epochs):
         path = rel_path+"gan_models/"
         filename = self.model+"_t="+str(self.timesteps)+"_tNoise="+str(self.noise_timesteps)+\
-                   "_epochs="+str(n_epochs)+"_epochsGen="+str(gen_epochs)
+                   "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(self.lr)
         discriminator = keras.models.load_model(path+filename+"_discriminator.h5")
         generator = keras.models.load_model(path+filename+"_generator.h5") 
         return discriminator, generator
@@ -344,7 +347,7 @@ def grid_search(args):
 
 def full_gan_training(args):
 
-    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps,
+    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr,
                           embed=args.embed, fixed_params=args.fixed_params)
 
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
@@ -371,5 +374,6 @@ if __name__ == "__main__":
     parser.add_argument("--noise_timesteps", default=5, type=int)
     parser.add_argument("--embed", default=False, type=bool)
     parser.add_argument("--fixed_params", default=True, type=bool)
+    parser.add_argument("--lr", default="0.001", type=float)
 
     main(args=parser.parse_args())
