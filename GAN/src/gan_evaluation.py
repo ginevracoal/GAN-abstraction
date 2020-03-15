@@ -2,7 +2,7 @@ import os
 import argparse
 from directories import *
 from gan_abstraction import GAN_abstraction
-from utils import load_from_pickle, generate_noise, save_to_pickle
+from utils import load_from_pickle, generate_noise, save_to_pickle, load_and_rescale
 import numpy as np
 from scipy.stats import wasserstein_distance
 from scipy.special import kl_div
@@ -39,7 +39,7 @@ class GAN_evaluator(GAN_abstraction):
 		elif model == "Toggle":
 			filename = "ToggleSwitch_test_set"
 
-		if self.fixed_params:
+		if self.fixed_params==1:
 			filename = filename+"_oneparam"
 
 		traj_simulations = load_from_pickle(path=path+filename+".pickle")
@@ -61,6 +61,12 @@ class GAN_evaluator(GAN_abstraction):
 		print("params.shape = ", params.shape)
 		print("n_species = ", n_species)
 		print("n_params = ", n_params)
+
+
+		# path = RESULTS+"trained_models/"+self.filename
+		# trajectories = load_and_rescale(trajectories, path+"_traj")	
+		# initial_states = load_and_rescale(initial_states, path+"_states")	
+		# params = load_and_rescale(params, path+"_params")	
 
 		return trajectories, initial_states, params
 
@@ -173,8 +179,7 @@ class GAN_evaluator(GAN_abstraction):
 					                   n_species=n_species)
 				# print(noise.shape, init_state.shape, par.shape)
 				generated_trajectories = generator.predict([noise, init_state, par])
-				if self.round_traj:
-					generated_trajectories = np.round(generated_trajectories)
+				generated_trajectories = np.round(generated_trajectories)
 				gen_traj[s, traj_idx, :, :] = np.squeeze(generated_trajectories)
 			
 		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
@@ -205,7 +210,7 @@ class GAN_evaluator(GAN_abstraction):
 				# print("\nssa: ", ssa_fixed_init[:10,:10,s])
 				# print("gen: ", gen_fixed_init[:10,:10,s])
 
-				for traj_idx in range(10):#(traj_per_state):
+				for traj_idx in range(20):#(traj_per_state):
 					sns.lineplot(range(n_timesteps), ssa_fixed_init[traj_idx,:,s], ax=ax[s], 
 						         color="blue")
 					sns.lineplot(range(n_timesteps), gen_fixed_init[traj_idx,:,s], ax=ax[s], 
@@ -287,11 +292,11 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("-n", "--n_traj", default=1000, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
-    parser.add_argument("--epochs", default=20, type=int)
-    parser.add_argument("--gen_epochs", default=5, type=int)
-    parser.add_argument("--noise_timesteps", default=5, type=int)
-    parser.add_argument("--embed", default=False, type=bool)
-    parser.add_argument("--fixed_params", default=True, type=bool)
+    parser.add_argument("--epochs", default=5, type=int)
+    parser.add_argument("--gen_epochs", default=10, type=int)
+    parser.add_argument("--noise_timesteps", default=128, type=int)
+    parser.add_argument("--embed", default=0, type=int)
+    parser.add_argument("--fixed_params", default=1, type=int)
     parser.add_argument("--lr", default="0.001", type=float)
 
     main(args=parser.parse_args())

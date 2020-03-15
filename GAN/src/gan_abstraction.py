@@ -3,11 +3,12 @@ from tensorflow import keras
 from keras import backend as K
 from tensorflow.keras.layers import Input, Dense, Conv1D, LeakyReLU, Dropout, Concatenate, \
                                     Embedding, Flatten, Reshape, RepeatVector, Permute, \
-                                    SeparableConv1D, Lambda
+                                    Lambda, BatchNormalization, Conv2D
+from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential, Model
 import numpy as np
 import tensorflow as tf
-from utils import load_from_pickle, execution_time, generate_noise
+from utils import load_from_pickle, execution_time, generate_noise, save_to_pickle, rescale
 import time
 from directories import *
 import os
@@ -16,18 +17,17 @@ import itertools
 
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed, lr, n_epochs, gen_epochs):
+    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed, lr, n_epochs, 
+                 gen_epochs):
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
-        self.embed=embed
         self.fixed_params=fixed_params
+        self.embed=embed
         self.lr=lr
         self.n_epochs=n_epochs
         self.gen_epochs=gen_epochs
-        self.round_traj=True
-        self.architecture="lstm"
-
+        self.architecture="2d_convolution"
         self.filename = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                         "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(lr)
 
@@ -41,7 +41,7 @@ class GAN_abstraction:
         elif model == "Toggle":
             filename = "ToggleSwitch_training_set"
 
-        if self.fixed_params:
+        if self.fixed_params==1:
             filename = filename+"_oneparam"
 
         traj_simulations = load_from_pickle(path=path+filename+".pickle")
@@ -62,154 +62,157 @@ class GAN_abstraction:
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
 
-        # [print(initial_states[i], params[i]) for i in range(50)]
-        # exit()
-
-        trajectories = tf.keras.utils.normalize(trajectories, axis=-1, order=2)
-        initial_states = tf.keras.utils.normalize(initial_states, axis=-1, order=2)
-        params = tf.keras.utils.normalize(params, axis=-1, order=2)
-
+        # path=RESULTS+"trained_models/"
+        # trajectories = rescale(data=trajectories, path=path, filename=self.filename+"_traj")
+        # initial_states = rescale(data=initial_states, path=path, filename=self.filename+"_states")
+        # params = rescale(data=params, path=path, filename=self.filename+"_params")
+        
         return trajectories, initial_states, params
 
+    def generator(self):
 
-    def generator(self, timesteps, noise_timesteps):
-
-        noise = Input(shape=(noise_timesteps, self.n_species)) 
+        noise = Input(shape=(self.noise_timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
-        par = Input(shape=(self.n_params,))
-        full_traj = Concatenate(axis=1)([init_states,noise])
+        params = Input(shape=(self.n_params,1))
 
-        if self.fixed_params:
-            inputs = full_traj
-
+        if self.fixed_params==0:
+            params = Dense((self.n_params*self.n_species))(params)
+            params = Reshape((self.n_params, self.n_species))(params)
+            inputs = Concatenate(axis=1)([init_states,noise,params])
         else:
-            if self.embed:
-                params = Reshape((noise_timesteps+1,1))(Dense((noise_timesteps+1))(par))
-            else:
-                params = Permute((1,2))(RepeatVector(noise_timesteps+1)(par))
-            inputs = Concatenate(axis=-1)([full_traj,params])
+            inputs = Concatenate(axis=1)([init_states,noise]) 
 
-        if self.architecture == "basic_convolution":
-            x = Conv1D(64, 3, padding="same")(inputs)
+        if self.architecture == "1d_convolution":
+            x = Conv1D(64, 3)(inputs)
             x = LeakyReLU()(x)
             x = Conv1D(128, 3)(x)
             x = LeakyReLU()(x)
             x = Flatten()(x)
-            x = Dense((timesteps)*(self.n_species), activation="relu")(x)
-            outputs = Reshape((timesteps, self.n_species))(x)    
+            x = Dense((self.timesteps)*(self.n_species), activation="relu")(x)
+            outputs = Reshape((self.timesteps, self.n_species))(x)    
 
         elif self.architecture == "channel_wise_convolution":
-            n_channels = inputs.shape[2]
-            inputs_list = []
-            for c in range(n_channels):
+            channels_outputs = []
+            for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
                 x = select_channel(inputs)
-                x = Reshape((inputs.shape[1],1))(x)
-                x = Conv1D(64, 3, padding="same")(x)
+                # x = BatchNormalization()(x) 
+                x = Reshape((x.shape[1],1))(x)
+                x = Conv1D(64, 3)(x)
                 x = LeakyReLU()(x)
                 x = Conv1D(128, 3)(x)
                 x = LeakyReLU()(x)
                 x = Flatten()(x)
-                x = Dense((timesteps), activation="relu")(x)
-                inputs_list.append(x)
-            outputs_list = Concatenate(axis=-1)(inputs_list)
-            outputs = Reshape((timesteps, n_channels))(outputs_list)
+                x = Dense((self.timesteps), activation="relu")(x)
+                channels_outputs.append(x)
+            channels_outputs = Concatenate(axis=-1)(channels_outputs)
+            outputs = Reshape((self.timesteps, self.n_species))(channels_outputs)
 
-        if self.fixed_params is False:
-            model = Model(inputs=[noise,init_states,par], outputs=outputs)
-        else:
+        elif self.architecture == "2d_convolution":
+            x = Reshape((inputs.shape[1],inputs.shape[2],1))(inputs)  
+            x = Conv2D(64,(2,2),padding="same")(x)
+            x = LeakyReLU()(x)
+            x = Conv2D(128,(2,2))(x)
+            x = LeakyReLU()(x)
+            x = Flatten()(x)
+            x = Dense((self.timesteps)*(self.n_species), activation="relu")(x)
+            outputs = Reshape((self.timesteps, self.n_species))(x)   
+
+        if self.fixed_params==1:
             model = Model(inputs=[noise,init_states], outputs=outputs)
-        
+        else:
+            model = Model(inputs=[noise,init_states,params], outputs=outputs)        
+        # print(model.summary())    
         return model
 
-    def discriminator(self, timesteps):
+    def discriminator(self):
 
-        traj = Input(shape=(timesteps, self.n_species)) 
+        trajectories = Input(shape=(self.timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
-        par = Input(shape=(self.n_params,))
-        full_traj = Concatenate(axis=1)([init_states,traj])
-
-        if self.fixed_params is False:
-
-            if self.embed:
-                params = Reshape((timesteps+1,1))(Dense((timesteps+1))(par))
-            else:
-                params = Permute((1,2))(RepeatVector(timesteps+1)(par))
-
-            inputs = Concatenate(axis=-1)([full_traj,params])
-
+        params = Input(shape=(self.n_params,1))
+        
+        if self.fixed_params==0:
+            params = Dense((self.n_params*self.n_species))(params)
+            params = Reshape((self.n_params, self.n_species))(params)
+            inputs = Concatenate(axis=1)([init_states,trajectories,params])
         else:
-            inputs = full_traj
+            inputs = Concatenate(axis=1)([init_states,trajectories]) 
 
-        if self.architecture == "basic_convolution":
-            x = Conv1D(64, 2)(inputs)
-            x = LeakyReLU()(x)
-            x = Conv1D(128, 3)(x)
+
+        if self.architecture == "1d_convolution":
+            x = Conv1D(64, 3, data_format="channels_last")(inputs)
             x = LeakyReLU()(x)
             x = Flatten()(x)
             x = Dropout(0.3)(x)
             outputs = Dense(1, activation="sigmoid")(x)
         
         elif self.architecture == "channel_wise_convolution":
-            n_channels = inputs.shape[2]
-            inputs_list = []
-            for c in range(n_channels):
+            
+            channels_outputs = []
+            for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
+                # print(inputs.shape)
                 x = select_channel(inputs)
-                x = Conv1D(64, 3)(inputs)
+                print(x.shape)
+                # x = BatchNormalization()(x)
+                x = Reshape((x.shape[1],1))(x)
+                x = Conv1D(64, 3, data_format="channels_last")(x)
                 x = LeakyReLU()(x)
                 # x = Conv1D(128, 3)(x)
                 # x = LeakyReLU()(x)
                 x = Flatten()(x)
                 x = Dropout(0.3)(x)
-                inputs_list.append(x)
-            outputs_list = Concatenate(axis=-1)(inputs_list)
+                channels_outputs.append(x)
+            outputs = Concatenate(axis=-1)(channels_outputs)
+            # outputs = Reshape((1, self.n_species))(channels_outputs)
+            outputs = Dense(1, activation="sigmoid")(outputs)   
+
+        elif self.architecture == "2d_convolution":
+            x = Reshape((inputs.shape[1],inputs.shape[2],1))(inputs)  
+            x = Conv2D(64,(2,2),padding="same")(x)
+            x = LeakyReLU()(x)
+            x = Dropout(0.3)(x)
+            x = Flatten()(x)
             outputs = Dense(1, activation="sigmoid")(x)
 
-        if self.fixed_params is False:
-            model = Model(inputs=[traj,init_states,par], outputs=outputs)
+        if self.fixed_params==1:
+            model = Model(inputs=[trajectories,init_states], outputs=outputs)
         else:
-            model = Model(inputs=[traj,init_states], outputs=outputs)
-
-        if model.trainable == False:
-            if self.round_traj:
-                traj = K.round(traj)
-            
-            if self.fixed_params is False:
-                model = Model(inputs=[traj,init_states,par], outputs=outputs)
-            else:
-                model = Model(inputs=[traj,init_states], outputs=outputs)
+            model = Model(inputs=[trajectories,init_states,params], outputs=outputs)
 
         opt = keras.optimizers.Adam(lr=self.lr)
         model.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
+        # print(model.summary())
         return model
 
     def gan(self, discriminator, generator): 
+
         discriminator.trainable = False
 
-        if self.fixed_params is False:
-            noise, init_states, par = generator.input
-        else:
-            noise, init_states = generator.input
-        gen_traj = generator.output
 
-        if self.fixed_params is False:
-            gan_output = discriminator([gen_traj, init_states, par])
-            model = Model(inputs=[noise, init_states, par], outputs=gan_output)
-        else:
+        if self.fixed_params==1:
+            noise, init_states = generator.input
+            gen_traj = generator.output
             gan_output = discriminator([gen_traj, init_states])
             model = Model(inputs=[noise, init_states], outputs=gan_output)
 
-        opt = keras.optimizers.Adam(lr=0.0001)
+        else:
+            noise, init_states, params = generator.input
+            gen_traj = generator.output
+            gan_output = discriminator([gen_traj, init_states, params])
+            model = Model(inputs=[noise, init_states, params], outputs=gan_output)            
+
+        opt = keras.optimizers.Adam(lr=0.001)
         model.compile(loss='binary_crossentropy', optimizer=opt)
+        # print(model.summary())
         return model
 
     def train(self, training_data, batch_size):
         trajectories, initial_states, params = training_data 
         n_batches = int(len(initial_states) / batch_size)+1
 
-        generator = self.generator(timesteps=self.timesteps, noise_timesteps=self.noise_timesteps)
-        discriminator = self.discriminator(timesteps=self.timesteps)
+        generator = self.generator()
+        discriminator = self.discriminator()
         gan = self.gan(discriminator, generator)
 
         g_loss=0
@@ -229,39 +232,41 @@ class GAN_abstraction:
             epoch_start = time.time()
 
             perm_idxs = np.random.permutation(len(trajectories))
-            trajectories = trajectories[perm_idxs]
-            initial_states = initial_states[perm_idxs]
-            params = params[perm_idxs]
+            perm_traj = trajectories[perm_idxs]
+            perm_states = initial_states[perm_idxs]
+            perm_par = params[perm_idxs]
             
             for batch_idx in range(n_batches-1):
                 begin, end = batch_idx*batch_size, (batch_idx+1)*batch_size
-                traj = trajectories[begin:end,:,:]
-                init_states = initial_states[begin:end,:]
-                par = params[begin:end,:]
+                t = perm_traj[begin:end,:,:]
+                s = perm_states[begin:end,:,:]
+                p = perm_par[begin:end,:]
 
-                y_train_real = np.ones(len(init_states))
-                d_loss1, d_acc1 = discriminator.train_on_batch([traj, init_states, par], 
-                                  y_train_real)
+                # print(t.shape, s.shape, p.shape)
 
-                noise = generate_noise(len(init_states), self.noise_timesteps, self.n_species)
-                gen_traj = generator.predict([noise, init_states, par])
+                x_train_real = [t,s] if self.fixed_params==1 else [t,s,p]
+                y_train_real = np.ones(batch_size)
+                d_loss1, d_acc1 = discriminator.train_on_batch(x_train_real, y_train_real)
 
-                ## debug
-                # print(initial_states[:3])
-                # print(gen_traj[0][:2][:2])
+                noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
+                x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
+                gen_traj = generator.predict(x_noise)
+                
+                # gen_traj = np.round(gen_traj, 2)
+                gen_traj = np.round(gen_traj)
 
-                if self.round_traj:
-                    gen_traj = np.round(gen_traj)
+                # debug
+                print("\nreal=",s[0,:,0],t[0,:10,0],"\t",s[0,:,1],t[0,:10,1])
+                print("gen=",s[0,:,0],gen_traj[0,:10,0],"\t",s[0,:,1],gen_traj[0,:10,1])
 
-                    # print(gen_traj[0][:2][:2])
+                x_train_fake = [gen_traj,s] if self.fixed_params==1 else [gen_traj,s,p]
+                y_train_fake = np.zeros(batch_size)
+                d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
 
-                y_train_fake = np.zeros(len(init_states))
-                d_loss2, d_acc2 = discriminator.train_on_batch([gen_traj, init_states, par], 
-                                  y_train_fake)
-
-                for _ in range(self.gen_epochs):
-                    noise = generate_noise(len(init_states), self.noise_timesteps, self.n_species)
-                    g_loss = gan.train_on_batch(x=[noise, init_states, par], y=y_train_real)
+                for _ in range(self.gen_epochs*2):
+                    noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
+                    x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
+                    g_loss = gan.train_on_batch(x=x_noise, y=y_train_real)
 
             d_loss1_list.append(d_loss1)
             d_loss2_list.append(d_loss2)
@@ -280,8 +285,8 @@ class GAN_abstraction:
         os.makedirs(os.path.dirname(RESULTS+"trained_models/"), exist_ok=True)
         print("\nSaving:")
         print(RESULTS+"trained_models/"+self.filename+"_discriminator.h5")
-        print(RESULTS+"trained_models/"+self.filename+"_generator.h5")
         discriminator.save(RESULTS+"trained_models/"+self.filename+"_discriminator.h5")
+        print(RESULTS+"trained_models/"+self.filename+"_generator.h5")
         generator.save(RESULTS+"trained_models/"+self.filename+"_generator.h5")
 
         plot_training(self.n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
@@ -352,8 +357,9 @@ def grid_search(args):
 
 def full_gan_training(args):
 
-    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr, n_epochs=args.epochs,
-                          gen_epochs=args.gen_epochs, embed=args.embed, fixed_params=args.fixed_params)
+    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr, 
+                          n_epochs=args.epochs, fixed_params=args.fixed_params,
+                          gen_epochs=args.gen_epochs, embed=args.embed)
 
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
@@ -370,13 +376,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("-n", "--n_traj", default=1000, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
-    parser.add_argument("--batch_size", default=512, type=int)
+    parser.add_argument("--batch_size", default=64, type=int)
     parser.add_argument("--model", default="eSIR", type=str)
-    parser.add_argument("--epochs", default=20, type=int)
-    parser.add_argument("--gen_epochs", default=5, type=int)
-    parser.add_argument("--noise_timesteps", default=5, type=int)
-    parser.add_argument("--embed", default=False, type=bool)
-    parser.add_argument("--fixed_params", default=True, type=bool)
+    parser.add_argument("--epochs", default=5, type=int)
+    parser.add_argument("--gen_epochs", default=10, type=int)
+    parser.add_argument("--noise_timesteps", default=128, type=int)
+    parser.add_argument("--embed", default=0, type=int)
+    parser.add_argument("--fixed_params", default=1, type=int)
     parser.add_argument("--lr", default="0.001", type=float)
 
     main(args=parser.parse_args())
