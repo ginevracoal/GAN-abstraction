@@ -49,6 +49,8 @@ class GAN_evaluator(GAN_abstraction):
 		initial_states = traj_simulations["Y_s0"]
 		params = traj_simulations["Y_par"]
 		initial_states = np.expand_dims(initial_states, axis=1)
+		params = np.expand_dims(params, axis=-1)
+		params = np.concatenate((params,params),axis=-1)
 
 		# [print(initial_states[i], params[i]) for i in range(50)]
 		# exit()
@@ -61,7 +63,6 @@ class GAN_evaluator(GAN_abstraction):
 		print("params.shape = ", params.shape)
 		print("n_species = ", n_species)
 		print("n_params = ", n_params)
-
 
 		# path = RESULTS+"trained_models/"+self.filename
 		# trajectories = load_and_rescale(trajectories, path+"_traj")	
@@ -178,7 +179,10 @@ class GAN_evaluator(GAN_abstraction):
 				noise = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, 
 					                   n_species=n_species)
 				# print(noise.shape, init_state.shape, par.shape)
-				generated_trajectories = generator.predict([noise, init_state, par])
+				if self.fixed_params==1:
+					generated_trajectories = generator.predict([noise, init_state])
+				else:
+					generated_trajectories = generator.predict([noise, init_state, par])
 				generated_trajectories = np.round(generated_trajectories)
 				gen_traj[s, traj_idx, :, :] = np.squeeze(generated_trajectories)
 			
@@ -210,7 +214,7 @@ class GAN_evaluator(GAN_abstraction):
 				# print("\nssa: ", ssa_fixed_init[:10,:10,s])
 				# print("gen: ", gen_fixed_init[:10,:10,s])
 
-				for traj_idx in range(20):#(traj_per_state):
+				for traj_idx in range(20):
 					sns.lineplot(range(n_timesteps), ssa_fixed_init[traj_idx,:,s], ax=ax[s], 
 						         color="blue")
 					sns.lineplot(range(n_timesteps), gen_fixed_init[traj_idx,:,s], ax=ax[s], 
@@ -290,7 +294,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("--model", default="eSIR", type=str)
-    parser.add_argument("-n", "--n_traj", default=1000, type=int)
+    parser.add_argument("-n", "--n_traj", default=50, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
     parser.add_argument("--epochs", default=5, type=int)
     parser.add_argument("--gen_epochs", default=10, type=int)

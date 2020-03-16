@@ -51,6 +51,8 @@ class GAN_abstraction:
         initial_states = traj_simulations["Y_s0"][:n_traj]
         params = traj_simulations["Y_par"][:n_traj]
         initial_states = np.expand_dims(initial_states, axis=1)
+        params = np.expand_dims(params, axis=-1)
+        params = np.concatenate((params,params),axis=-1)
 
         self.n_species = initial_states.shape[-1]
         self.n_params = params.shape[1]
@@ -61,6 +63,9 @@ class GAN_abstraction:
         print("n_species = ", self.n_species)
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
+
+        # print(initial_states[0],"\n", params[0])
+        # exit()
 
         # path=RESULTS+"trained_models/"
         # trajectories = rescale(data=trajectories, path=path, filename=self.filename+"_traj")
@@ -73,14 +78,12 @@ class GAN_abstraction:
 
         noise = Input(shape=(self.noise_timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
-        params = Input(shape=(self.n_params,1))
+        params = Input(shape=(self.n_params,self.n_species))
 
-        if self.fixed_params==0:
-            params = Dense((self.n_params*self.n_species))(params)
-            params = Reshape((self.n_params, self.n_species))(params)
-            inputs = Concatenate(axis=1)([init_states,noise,params])
-        else:
+        if self.fixed_params==1:
             inputs = Concatenate(axis=1)([init_states,noise]) 
+        else:
+            inputs = Concatenate(axis=1)([init_states,noise,params])
 
         if self.architecture == "1d_convolution":
             x = Conv1D(64, 3)(inputs)
@@ -129,15 +132,12 @@ class GAN_abstraction:
 
         trajectories = Input(shape=(self.timesteps, self.n_species)) 
         init_states = Input(shape=(1,self.n_species))
-        params = Input(shape=(self.n_params,1))
+        params = Input(shape=(self.n_params,self.n_species))
         
-        if self.fixed_params==0:
-            params = Dense((self.n_params*self.n_species))(params)
-            params = Reshape((self.n_params, self.n_species))(params)
-            inputs = Concatenate(axis=1)([init_states,trajectories,params])
-        else:
+        if self.fixed_params==1:
             inputs = Concatenate(axis=1)([init_states,trajectories]) 
-
+        else:
+            inputs = Concatenate(axis=1)([init_states,trajectories,params])
 
         if self.architecture == "1d_convolution":
             x = Conv1D(64, 3, data_format="channels_last")(inputs)
@@ -151,20 +151,16 @@ class GAN_abstraction:
             channels_outputs = []
             for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
-                # print(inputs.shape)
                 x = select_channel(inputs)
                 print(x.shape)
                 # x = BatchNormalization()(x)
                 x = Reshape((x.shape[1],1))(x)
                 x = Conv1D(64, 3, data_format="channels_last")(x)
                 x = LeakyReLU()(x)
-                # x = Conv1D(128, 3)(x)
-                # x = LeakyReLU()(x)
                 x = Flatten()(x)
                 x = Dropout(0.3)(x)
                 channels_outputs.append(x)
             outputs = Concatenate(axis=-1)(channels_outputs)
-            # outputs = Reshape((1, self.n_species))(channels_outputs)
             outputs = Dense(1, activation="sigmoid")(outputs)   
 
         elif self.architecture == "2d_convolution":
@@ -188,7 +184,6 @@ class GAN_abstraction:
     def gan(self, discriminator, generator): 
 
         discriminator.trainable = False
-
 
         if self.fixed_params==1:
             noise, init_states = generator.input
@@ -264,6 +259,7 @@ class GAN_abstraction:
                 d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
 
                 for _ in range(self.gen_epochs*2):
+                    # qua potrei passare input random per s e p
                     noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
                     x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
                     g_loss = gan.train_on_batch(x=x_noise, y=y_train_real)
