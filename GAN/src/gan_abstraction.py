@@ -24,12 +24,18 @@ class GAN_abstraction:
         self.noise_timesteps = noise_timesteps
         self.fixed_params=fixed_params
         self.embed=embed
-        self.lr=lr
+        self.gen_lr=0.00001
+        if lr>self.gen_lr:
+            self.lr=lr
+        else:
+            raise ValueError("Discriminator lr should be > generator lr = ", self.gen_lr)
         self.n_epochs=n_epochs
         self.gen_epochs=gen_epochs
         self.architecture="2d_convolution"
         self.filename = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                         "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(lr)
+        if self.fixed_params==1:
+            self.filename = self.filename+"_fixedPar"
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -197,7 +203,7 @@ class GAN_abstraction:
             gan_output = discriminator([gen_traj, init_states, params])
             model = Model(inputs=[noise, init_states, params], outputs=gan_output)            
 
-        opt = keras.optimizers.Adam(lr=0.001)
+        opt = keras.optimizers.Adam(lr=self.gen_lr)
         model.compile(loss='binary_crossentropy', optimizer=opt)
         # print(model.summary())
         return model
@@ -237,32 +243,38 @@ class GAN_abstraction:
                 s = perm_states[begin:end,:,:]
                 p = perm_par[begin:end,:]
 
-                # print(t.shape, s.shape, p.shape)
+                discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, scale=0.3)
+                discr_noise = np.round(discr_noise)
+
+                # == d1 training ==
+                t = t+discr_noise
 
                 x_train_real = [t,s] if self.fixed_params==1 else [t,s,p]
                 y_train_real = np.ones(batch_size)
                 d_loss1, d_acc1 = discriminator.train_on_batch(x_train_real, y_train_real)
 
+                # == d2 training ==
                 noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
+
+                noise = noise+discr_noise
+
                 x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
                 gen_traj = generator.predict(x_noise)
-                
-                # gen_traj = np.round(gen_traj, 2)
                 gen_traj = np.round(gen_traj)
-
-                # debug
-                print("\nreal=",s[0,:,0],t[0,:10,0],"\t",s[0,:,1],t[0,:10,1])
-                print("gen=",s[0,:,0],gen_traj[0,:10,0],"\t",s[0,:,1],gen_traj[0,:10,1])
-
                 x_train_fake = [gen_traj,s] if self.fixed_params==1 else [gen_traj,s,p]
                 y_train_fake = np.zeros(batch_size)
                 d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
 
+
+                # == g training ==
                 for _ in range(self.gen_epochs*2):
-                    # qua potrei passare input random per s e p
                     noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
                     x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
                     g_loss = gan.train_on_batch(x=x_noise, y=y_train_real)
+
+                # debug
+                print("\nreal=",s[0,:,0],t[0,:10,0],"\t",s[0,:,1],t[0,:10,1])
+                print("gen=",s[0,:,0],gen_traj[0,:10,0],"\t",s[0,:,1],gen_traj[0,:10,1])
 
             d_loss1_list.append(d_loss1)
             d_loss2_list.append(d_loss2)
