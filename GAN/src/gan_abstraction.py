@@ -205,9 +205,38 @@ class GAN_abstraction:
         # print(model.summary())
         return model
 
+    def generate_real_samples(self, training_data, batch_size):
+        trajectories, initial_states, params = training_data 
+        idxs = np.random.randint(0, len(trajectories), batch_size)
+        t, s, p = (trajectories[idxs], initial_states[idxs], params[idxs])
+
+        return [t,s] if self.fixed_params==1 else [t,s,p]
+
+    def generate_latent_samples(self, training_data, batch_size):
+        _, initial_states, params = training_data 
+        # noise
+        noise_shape = (batch_size, self.noise_timesteps, self.n_species)
+        noise = np.random.normal(loc=0., scale=1., size=noise_shape)
+        # labels
+        idxs = np.random.randint(0, len(initial_states), batch_size)
+        s, p = (initial_states[idxs], params[idxs])
+        return [noise,s] if self.fixed_params==1 else [noise,s,p]
+
+    def generate_fake_samples(self, training_data, batch_size, generator):
+        latent_data = self.generate_latent_samples(training_data, batch_size)
+        gen_traj = generator.predict(latent_data)
+        gen_traj = np.round(gen_traj)  
+
+        if self.fixed_params==1:
+            _, s = latent_data
+            return [gen_traj,s]
+        else:
+            _, s, p = latent_data
+            return [gen_traj,s,p]
+
     def train(self, training_data, batch_size):
         trajectories, initial_states, params = training_data 
-        n_batches = int(len(initial_states) / batch_size)+1
+        # n_batches = int(len(initial_states) / batch_size)+1
 
         generator = self.generator()
         discriminator = self.discriminator()
@@ -229,53 +258,35 @@ class GAN_abstraction:
         for epoch in range(self.n_epochs):
             epoch_start = time.time()
 
-            perm_idxs = np.random.permutation(len(trajectories))
-            perm_traj = trajectories[perm_idxs]
-            perm_states = initial_states[perm_idxs]
-            perm_par = params[perm_idxs]
-            
-            # tolgo i batch
-            for batch_idx in range(n_batches-1):
-                begin, end = batch_idx*batch_size, (batch_idx+1)*batch_size
-                t = perm_traj[begin:end,:,:]
-                s = perm_states[begin:end,:,:]
-                p = perm_par[begin:end,:]
+            # == d1 training ==
 
-                if self.discr_noise==1:
-                    discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, 
-                                                 scale=0.01)
-                    discr_noise = np.round(discr_noise, 2)
+            # if self.discr_noise==1:
+            #     discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, 
+            #                                  scale=0.01)
+            #     t = t+discr_noise
 
-                # == d1 training ==
-                if self.discr_noise==1:
-                    t = t+discr_noise
+            x_train_real = self.generate_real_samples(training_data, batch_size)
+            y_train_real = np.ones(batch_size)
+            d_loss1, d_acc1 = discriminator.train_on_batch(x_train_real, y_train_real)
 
-                x_train_real = [t,s] if self.fixed_params==1 else [t,s,p]
-                y_train_real = np.ones(batch_size)
-                d_loss1, d_acc1 = discriminator.train_on_batch(x_train_real, y_train_real)
+            # == d2 training ==
+            noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
 
-                # == d2 training ==
-                noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
+            # if self.discr_noise==1:
+            #     noise = noise+discr_noise
 
-                if self.discr_noise==1:
-                    noise = noise+discr_noise
+            x_train_fake = self.generate_fake_samples(training_data, batch_size, generator)
+            y_train_fake = np.zeros(batch_size)
+            d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
 
-                x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
-                gen_traj = generator.predict(x_noise)
-                gen_traj = np.round(gen_traj)
-                x_train_fake = [gen_traj,s] if self.fixed_params==1 else [gen_traj,s,p]
-                y_train_fake = np.zeros(batch_size)
-                d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
+            # == g training ==
+            for _ in range(self.gen_epochs*2):
+                x_latent = self.generate_latent_samples(training_data, batch_size)
+                g_loss = gan.train_on_batch(x=x_latent, y=y_train_real)
 
-                # == g training ==
-                for _ in range(self.gen_epochs*2):
-                    noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
-                    x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
-                    g_loss = gan.train_on_batch(x=x_noise, y=y_train_real)
-
-                # debug
-                print("\nreal=",s[0,:,0],t[0,:10,0],"\t",s[0,:,1],t[0,:10,1])
-                print("gen=",s[0,:,0],gen_traj[0,:10,0],"\t",s[0,:,1],gen_traj[0,:10,1])
+            # # debug
+            # print("\nreal=",s[0,:,0],t[0,:10,0],"\t",s[0,:,1],t[0,:10,1])
+            # print("gen=",s[0,:,0],gen_traj[0,:10,0],"\t",s[0,:,1],gen_traj[0,:10,1])
 
             d_loss1_list.append(d_loss1)
             d_loss2_list.append(d_loss2)
