@@ -2,7 +2,7 @@ import os
 import argparse
 from directories import *
 from gan_abstraction import GAN_abstraction
-from utils import load_from_pickle, generate_noise, save_to_pickle, load_and_rescale
+from utils import load_from_pickle, generate_noise, save_to_pickle
 import numpy as np
 from scipy.stats import wasserstein_distance
 from scipy.special import kl_div
@@ -14,15 +14,19 @@ import itertools
 
 class GAN_evaluator(GAN_abstraction):
 
-	def __init__(self, model, n_traj, timesteps, noise_timesteps, n_epochs, gen_epochs, embed, 
+	def __init__(self, model, n_traj, timesteps, noise_timesteps, n_epochs, gen_epochs,
 		         fixed_params, lr):
 		super(GAN_evaluator, self).__init__(model=model, timesteps=timesteps, n_epochs=n_epochs,
-											noise_timesteps=noise_timesteps, embed=embed, 
+											noise_timesteps=noise_timesteps,
 											fixed_params=fixed_params, lr=lr, gen_epochs=gen_epochs)
 		self.n_traj = n_traj
 		self.path = "evaluations/"+self.model+"_t="+str(self.timesteps)+"_tNoise="+\
 		            str(self.noise_timesteps)+"_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-		            "_lr="+str(self.lr)+"/"
+		            "_lr="+str(self.lr)
+		if self.fixed_params==1:
+			self.path = self.path+"_fixedPar/"
+		else:
+			self.path = self.path+"/"
 
 	def load_gan(self, rel_path):
 		return super(GAN_evaluator, self).load(rel_path=rel_path, n_epochs=self.n_epochs, 
@@ -63,12 +67,6 @@ class GAN_evaluator(GAN_abstraction):
 		print("params.shape = ", params.shape)
 		print("n_species = ", n_species)
 		print("n_params = ", n_params)
-
-		# path = RESULTS+"trained_models/"+self.filename
-		# trajectories = load_and_rescale(trajectories, path+"_traj")	
-		# initial_states = load_and_rescale(initial_states, path+"_states")	
-		# params = load_and_rescale(params, path+"_params")	
-
 		return trajectories, initial_states, params
 
 	# === DISTANCES ===
@@ -274,7 +272,7 @@ def main(args):
 	for (n_epochs, gen_epochs, noise_timesteps) in combinations:
 		gan_eval = GAN_evaluator(model=args.model, timesteps=args.timesteps, 
 			                     noise_timesteps=noise_timesteps, n_epochs=n_epochs,
-			                     gen_epochs=gen_epochs, n_traj=args.n_traj, embed=args.embed,
+			                     gen_epochs=gen_epochs, n_traj=args.n_traj,
 			                     fixed_params=args.fixed_params, lr=args.lr)
 
 		data = gan_eval.load_test_data(model=args.model)
@@ -299,8 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", default=5, type=int)
     parser.add_argument("--gen_epochs", default=10, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
-    parser.add_argument("--embed", default=0, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
-    parser.add_argument("--lr", default="0.001", type=float)
+    parser.add_argument("--lr", default="0.0001", type=float)
 
     main(args=parser.parse_args())

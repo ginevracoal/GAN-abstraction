@@ -17,21 +17,27 @@ import itertools
 
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps, fixed_params, embed, lr, n_epochs, 
+    def __init__(self, model, timesteps, noise_timesteps, fixed_params, lr, n_epochs, 
                  gen_epochs):
         self.model = model
         self.timesteps = timesteps
         self.noise_timesteps = noise_timesteps
         self.fixed_params=fixed_params
-        self.embed=embed
+        self.n_epochs=n_epochs
+        self.gen_epochs=gen_epochs
+
+        self.architecture="2d_convolution"
+        self.discr_noise=0
+        self.batch_normalization=1 if self.discr_noise==1 else 0
+
+        ## set lr
         self.gen_lr=0.00001
-        if lr>self.gen_lr:
+        if lr>=self.gen_lr:
             self.lr=lr
         else:
             raise ValueError("Discriminator lr should be > generator lr = ", self.gen_lr)
-        self.n_epochs=n_epochs
-        self.gen_epochs=gen_epochs
-        self.architecture="2d_convolution"
+
+        ## set filename
         self.filename = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                         "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(lr)
         if self.fixed_params==1:
@@ -57,11 +63,12 @@ class GAN_abstraction:
         initial_states = traj_simulations["Y_s0"][:n_traj]
         params = traj_simulations["Y_par"][:n_traj]
         initial_states = np.expand_dims(initial_states, axis=1)
-        params = np.expand_dims(params, axis=-1)
-        params = np.concatenate((params,params),axis=-1)
 
         self.n_species = initial_states.shape[-1]
         self.n_params = params.shape[1]
+
+        params = np.expand_dims(params, axis=-1)
+        params = np.tile(params,(1,self.n_species))
 
         print("\ntrajectories.shape = ", trajectories.shape)
         print("initial_states.shape = ", initial_states.shape)
@@ -69,15 +76,6 @@ class GAN_abstraction:
         print("n_species = ", self.n_species)
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
-
-        # print(initial_states[0],"\n", params[0])
-        # exit()
-
-        # path=RESULTS+"trained_models/"
-        # trajectories = rescale(data=trajectories, path=path, filename=self.filename+"_traj")
-        # initial_states = rescale(data=initial_states, path=path, filename=self.filename+"_states")
-        # params = rescale(data=params, path=path, filename=self.filename+"_params")
-        
         return trajectories, initial_states, params
 
     def generator(self):
@@ -90,6 +88,9 @@ class GAN_abstraction:
             inputs = Concatenate(axis=1)([init_states,noise]) 
         else:
             inputs = Concatenate(axis=1)([init_states,noise,params])
+
+        if self.batch_normalization==1:
+            inputs = BatchNormalization()(inputs)   
 
         if self.architecture == "1d_convolution":
             x = Conv1D(64, 3)(inputs)
@@ -105,7 +106,6 @@ class GAN_abstraction:
             for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
                 x = select_channel(inputs)
-                # x = BatchNormalization()(x) 
                 x = Reshape((x.shape[1],1))(x)
                 x = Conv1D(64, 3)(x)
                 x = LeakyReLU()(x)
@@ -116,7 +116,6 @@ class GAN_abstraction:
                 channels_outputs.append(x)
             channels_outputs = Concatenate(axis=-1)(channels_outputs)
             outputs = Reshape((self.timesteps, self.n_species))(channels_outputs)
-
         elif self.architecture == "2d_convolution":
             x = Reshape((inputs.shape[1],inputs.shape[2],1))(inputs)  
             x = Conv2D(64,(2,2),padding="same")(x)
@@ -145,33 +144,32 @@ class GAN_abstraction:
         else:
             inputs = Concatenate(axis=1)([init_states,trajectories,params])
 
+        if self.batch_normalization==1:
+            inputs = BatchNormalization()(inputs)   
+
         if self.architecture == "1d_convolution":
-            x = Conv1D(64, 3, data_format="channels_last")(inputs)
+            x = Conv1D(32, 3, data_format="channels_last")(inputs)
             x = LeakyReLU()(x)
             x = Flatten()(x)
             x = Dropout(0.3)(x)
             outputs = Dense(1, activation="sigmoid")(x)
-        
         elif self.architecture == "channel_wise_convolution":
-            
             channels_outputs = []
             for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
                 x = select_channel(inputs)
                 print(x.shape)
-                # x = BatchNormalization()(x)
                 x = Reshape((x.shape[1],1))(x)
-                x = Conv1D(64, 3, data_format="channels_last")(x)
+                x = Conv1D(32, 3, data_format="channels_last")(x)
                 x = LeakyReLU()(x)
                 x = Flatten()(x)
                 x = Dropout(0.3)(x)
                 channels_outputs.append(x)
             outputs = Concatenate(axis=-1)(channels_outputs)
             outputs = Dense(1, activation="sigmoid")(outputs)   
-
         elif self.architecture == "2d_convolution":
             x = Reshape((inputs.shape[1],inputs.shape[2],1))(inputs)  
-            x = Conv2D(64,(2,2),padding="same")(x)
+            x = Conv2D(32,(2,2),padding="same")(x)
             x = LeakyReLU()(x)
             x = Dropout(0.3)(x)
             x = Flatten()(x)
@@ -243,11 +241,14 @@ class GAN_abstraction:
                 s = perm_states[begin:end,:,:]
                 p = perm_par[begin:end,:]
 
-                discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, scale=0.3)
-                discr_noise = np.round(discr_noise)
+                if self.discr_noise==1:
+                    discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, 
+                                                 scale=0.01)
+                    discr_noise = np.round(discr_noise, 2)
 
                 # == d1 training ==
-                t = t+discr_noise
+                if self.discr_noise==1:
+                    t = t+discr_noise
 
                 x_train_real = [t,s] if self.fixed_params==1 else [t,s,p]
                 y_train_real = np.ones(batch_size)
@@ -256,7 +257,8 @@ class GAN_abstraction:
                 # == d2 training ==
                 noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
 
-                noise = noise+discr_noise
+                if self.discr_noise==1:
+                    noise = noise+discr_noise
 
                 x_noise = [noise,s] if self.fixed_params==1 else [noise,s,p]
                 gen_traj = generator.predict(x_noise)
@@ -264,7 +266,6 @@ class GAN_abstraction:
                 x_train_fake = [gen_traj,s] if self.fixed_params==1 else [gen_traj,s,p]
                 y_train_fake = np.zeros(batch_size)
                 d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
-
 
                 # == g training ==
                 for _ in range(self.gen_epochs*2):
@@ -285,7 +286,7 @@ class GAN_abstraction:
             print(f"\n[Epoch {epoch + 1}]\t g_loss = {g_loss:.4f}", end="\t")
             print(f"d_loss1 = {d_loss1:.4f}\td_loss2 = {d_loss2:.4f}", end="\t")
             print(f"a1 = {int(100*d_acc1)}\ta2 = {int(100*d_acc2)}", end="\t")
-            print(f"time = {time.time()-epoch_start:.2f}", end="\t")
+            # print(f"time = {time.time()-epoch_start:.2f}", end="\t")
 
         print("\n")
         execution_time(start=start, end=time.time())
@@ -334,11 +335,10 @@ def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
 
 
 def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timesteps, 
-                          noise_timesteps, embed, fixed_params, lr):
+                          noise_timesteps, fixed_params, lr):
 
     gan = GAN_abstraction(model=model,timesteps=timesteps, noise_timesteps=noise_timesteps, lr=lr, 
-                          n_epochs=epochs, gen_epochs=args.gen_epochs, embed=embed, 
-                          fixed_params=fixed_params)
+                          n_epochs=epochs, gen_epochs=args.gen_epochs, fixed_params=fixed_params)
     training_data = gan.load_data(n_traj=n_traj, model=model, timesteps=timesteps)
     gan.train(training_data=training_data,batch_size=batch_size)
 
@@ -358,16 +358,15 @@ def grid_search(args):
 
     Parallel(n_jobs=4)(
         delayed(_parallel_grid_search)(args.model, args.n_traj, args.batch_size, epochs, 
-                                       gen_epochs, args.timesteps, noise_timesteps,
-                                       args.embed, args.fixed_params)
-        for (epochs, gen_epochs, noise_timesteps, embed, fixed_params) in combinations)
+                                       gen_epochs, args.timesteps, noise_timesteps,margs.fixed_params)
+        for (epochs, gen_epochs, noise_timesteps, fixed_params) in combinations)
 
 
 def full_gan_training(args):
 
     gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr, 
                           n_epochs=args.epochs, fixed_params=args.fixed_params,
-                          gen_epochs=args.gen_epochs, embed=args.embed)
+                          gen_epochs=args.gen_epochs)
 
     training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
 
@@ -384,13 +383,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("-n", "--n_traj", default=1000, type=int)
     parser.add_argument("-t", "--timesteps", default=128, type=int)
-    parser.add_argument("--batch_size", default=64, type=int)
+    parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("--epochs", default=5, type=int)
     parser.add_argument("--gen_epochs", default=10, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
-    parser.add_argument("--embed", default=0, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
-    parser.add_argument("--lr", default="0.001", type=float)
+    parser.add_argument("--lr", default="0.0001", type=float)
 
     main(args=parser.parse_args())
