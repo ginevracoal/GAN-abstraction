@@ -14,23 +14,16 @@ import itertools
 
 class GAN_evaluator(GAN_abstraction):
 
-	def __init__(self, model, n_traj, timesteps, noise_timesteps, n_epochs, gen_epochs,
-		         fixed_params, lr):
-		super(GAN_evaluator, self).__init__(model=model, timesteps=timesteps, n_epochs=n_epochs,
-											noise_timesteps=noise_timesteps,
-											fixed_params=fixed_params, lr=lr, gen_epochs=gen_epochs)
-		self.n_traj = n_traj
-		self.path = "evaluations/"+self.model+"_t="+str(self.timesteps)+"_tNoise="+\
-		            str(self.noise_timesteps)+"_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-		            "_lr="+str(self.lr)
-		if self.fixed_params==1:
-			self.path = self.path+"_fixedPar/"
-		else:
-			self.path = self.path+"/"
+	def __init__(self, model, timesteps, noise_timesteps, fixed_params, gen_lr, discr_lr, n_epochs, 
+                 gen_epochs, n_traj):
+		super(GAN_evaluator, self).__init__(model=model, fixed_params=fixed_params,
+			                                timesteps=timesteps, noise_timesteps=noise_timesteps,
+			                                n_epochs=n_epochs, gen_epochs=gen_epochs,
+											gen_lr=gen_lr, discr_lr=discr_lr)
+		self.n_traj=n_traj
 
 	def load_gan(self, rel_path):
-		return super(GAN_evaluator, self).load(rel_path=rel_path, n_epochs=self.n_epochs, 
-			                                   gen_epochs=self.gen_epochs)
+		return super(GAN_evaluator, self).load(rel_path=rel_path)
 
 	def load_test_data(self, model, path="../../SSA/data/test/"):
 		
@@ -55,9 +48,6 @@ class GAN_evaluator(GAN_abstraction):
 		initial_states = np.expand_dims(initial_states, axis=1)
 		params = np.expand_dims(params, axis=-1)
 		params = np.concatenate((params,params),axis=-1)
-
-		# [print(initial_states[i], params[i]) for i in range(50)]
-		# exit()
 
 		n_species = initial_states.shape[-1]
 		n_params = params.shape[1]
@@ -123,12 +113,13 @@ class GAN_evaluator(GAN_abstraction):
 		              "gen_count":gen_histograms_count, "gen_x":gen_histograms_x,
 		              "wass_dist":dist}
 
-		save_to_pickle(data=distances, relative_path=RESULTS+self.path, 
-			           filename=self.filename+"_"+str(bins)+"_distances.pkl")	
+		save_to_pickle(data=distances, relative_path=RESULTS+self.path+"evaluations/", 
+			           filename="bins="+str(bins)+"_distances.pkl")	
 		return distances
 
 	def load_distances(self, rel_path, bins=100):
-		distances = load_from_pickle(path=rel_path+self.path+self.filename+"_"+str(bins)+"_distances.pkl")
+		distances = load_from_pickle(path=rel_path+self.path+"evaluations/"+\
+			                              "bins="+str(bins)+"_distances.pkl")
 		print("\ndistances.shape = ", distances.shape)
 
 	def plot_evolving_distances(self, distances, labels):
@@ -150,8 +141,8 @@ class GAN_evaluator(GAN_abstraction):
 
 		ax.set_xlabel("timesteps")
 		plt.tight_layout()
-		os.makedirs(os.path.dirname(RESULTS+self.path), exist_ok=True)
-		plt.savefig(RESULTS+self.path+self.filename+"_evolving_dist.png")
+		os.makedirs(os.path.dirname(RESULTS+self.path+"evaluations/"), exist_ok=True)
+		plt.savefig(RESULTS+self.path+"evaluations/"+"evolving_dist.png")
 		plt.close()
 
 	# === TRAJECTORIES ===
@@ -185,12 +176,12 @@ class GAN_evaluator(GAN_abstraction):
 				gen_traj[s, traj_idx, :, :] = np.squeeze(generated_trajectories)
 			
 		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
-		save_to_pickle(data=trajectories, relative_path=RESULTS+"evaluations/", 
-                       filename=self.filename+"_trajectories.pkl")	
+		save_to_pickle(data=trajectories, relative_path=RESULTS+self.path+"trajectories/", 
+                       filename="trajectories.pkl")	
 		return trajectories
 
 	def load_trajectories(self, rel_path):
-		trajectories = load_from_pickle(path=rel_path+"evaluations/"+self.filename+"_trajectories.pkl")
+		trajectories = load_from_pickle(path=rel_path+self.path+"trajectories/trajectories.pkl")
 		print("trajectories['ssa'].shape = ", trajectories["ssa"].shape)
 		print("trajectories['gen'].shape = ", trajectories["gen"].shape)
 		return trajectories
@@ -219,8 +210,9 @@ class GAN_evaluator(GAN_abstraction):
 						         color="orange")
 					ax[s].set_xlabel("timesteps")
 
-			os.makedirs(os.path.dirname(RESULTS+self.path), exist_ok=True)
-			plt.savefig(RESULTS+self.path+self.filename+"_trajStateIdx="+str(init_state)+".png")
+			path=RESULTS+self.path+"trajectories/"
+			os.makedirs(os.path.dirname(path), exist_ok=True)
+			plt.savefig(path+"trajectories_stateIdx="+str(init_state)+".png")
 			plt.close()
 
 	def plot_trajectories_dist(self, trajectories, bins=20):
@@ -255,8 +247,9 @@ class GAN_evaluator(GAN_abstraction):
 			ax[0,0].legend()
 			ax[1,0].legend()
 
-			os.makedirs(os.path.dirname(RESULTS+self.path), exist_ok=True)
-			plt.savefig(RESULTS+self.path+self.filename+"_traj_distr"+"_"+str(init_state)+".png")
+			path=RESULTS+self.path+"trajectories_distributions/"
+			os.makedirs(os.path.dirname(path), exist_ok=True)
+			plt.savefig(path+"traj_distr_stateIdx="+str(init_state)+".png")
 			plt.close()
 
 
@@ -270,10 +263,10 @@ def main(args):
 	combinations = [(args.epochs, args.gen_epochs, args.noise_timesteps)]
 
 	for (n_epochs, gen_epochs, noise_timesteps) in combinations:
-		gan_eval = GAN_evaluator(model=args.model, timesteps=args.timesteps, 
-			                     noise_timesteps=noise_timesteps, n_epochs=n_epochs,
-			                     gen_epochs=gen_epochs, n_traj=args.n_traj,
-			                     fixed_params=args.fixed_params, lr=args.lr)
+		gan_eval = GAN_evaluator(model=args.model, fixed_params=args.fixed_params, n_traj=args.traj,
+			                     timesteps=args.timesteps, noise_timesteps=noise_timesteps, 
+			                     n_epochs=n_epochs, gen_epochs=gen_epochs, 
+			                     discr_lr=args.discr_lr, gen_lr=args.gen_lr)
 
 		data = gan_eval.load_test_data(model=args.model)
 		d, g = gan_eval.load_gan(rel_path=RESULTS)
@@ -292,12 +285,14 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("--model", default="eSIR", type=str)
-    parser.add_argument("-n", "--n_traj", default=50, type=int)
-    parser.add_argument("-t", "--timesteps", default=128, type=int)
-    parser.add_argument("--epochs", default=5, type=int)
-    parser.add_argument("--gen_epochs", default=10, type=int)
+    parser.add_argument("--traj", default=1000, type=int)
+    parser.add_argument("--batch_size", default=128, type=int)
+    parser.add_argument("--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
+    parser.add_argument("--epochs", default=10, type=int)
+    parser.add_argument("--gen_epochs", default=1, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
-    parser.add_argument("--lr", default="0.0001", type=float)
+    parser.add_argument("--gen_lr", default="0.0001", type=float)
+    parser.add_argument("--discr_lr", default="0.0001", type=float)
 
     main(args=parser.parse_args())

@@ -17,7 +17,7 @@ import itertools
 
 class GAN_abstraction:
 
-    def __init__(self, model, timesteps, noise_timesteps, fixed_params, lr, n_epochs, 
+    def __init__(self, model, timesteps, noise_timesteps, fixed_params, gen_lr, discr_lr, n_epochs, 
                  gen_epochs):
         self.model = model
         self.timesteps = timesteps
@@ -28,20 +28,19 @@ class GAN_abstraction:
 
         self.architecture="2d_convolution"
         self.discr_noise=0
-        self.batch_normalization=1 if self.discr_noise==1 else 0
+        self.batch_normalization=0
 
         ## set lr
-        self.gen_lr=0.00001
-        if lr>=self.gen_lr:
-            self.lr=lr
-        else:
-            raise ValueError("Discriminator lr should be > generator lr = ", self.gen_lr)
+        if discr_lr < gen_lr:
+            raise ValueError("Discriminator lr should be > generator lr")
+        self.gen_lr=gen_lr
+        self.discr_lr=discr_lr
 
         ## set filename
-        self.filename = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
-                        "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+"_lr="+str(lr)
-        if self.fixed_params==1:
-            self.filename = self.filename+"_fixedPar"
+        self.path = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
+                    "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
+                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)
+        self.path = self.path+"_fixedPar/" if self.fixed_params==1 else self.path+"/"
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -180,7 +179,7 @@ class GAN_abstraction:
         else:
             model = Model(inputs=[trajectories,init_states,params], outputs=outputs)
 
-        opt = keras.optimizers.Adam(lr=self.lr)
+        opt = keras.optimizers.Adam(lr=self.discr_lr)
         model.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
         # print(model.summary())
         return model
@@ -235,6 +234,7 @@ class GAN_abstraction:
             perm_states = initial_states[perm_idxs]
             perm_par = params[perm_idxs]
             
+            # tolgo i batch
             for batch_idx in range(n_batches-1):
                 begin, end = batch_idx*batch_size, (batch_idx+1)*batch_size
                 t = perm_traj[begin:end,:,:]
@@ -291,44 +291,44 @@ class GAN_abstraction:
         print("\n")
         execution_time(start=start, end=time.time())
 
-        os.makedirs(os.path.dirname(RESULTS+"trained_models/"), exist_ok=True)
-        print("\nSaving:")
-        print(RESULTS+"trained_models/"+self.filename+"_discriminator.h5")
-        discriminator.save(RESULTS+"trained_models/"+self.filename+"_discriminator.h5")
-        print(RESULTS+"trained_models/"+self.filename+"_generator.h5")
-        generator.save(RESULTS+"trained_models/"+self.filename+"_generator.h5")
+        path = RESULTS+self.path+"trained_model/"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        print("\nSaving:"+"\n"+path+"discriminator.h5"+"\n"+path+"generator.h5")
+        discriminator.save(path+"discriminator.h5")
+        generator.save(path+"generator.h5")
 
-        plot_training(self.n_epochs, g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
-                      d_acc2_list, self.filename)
+        self.plot_training(g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, d_acc2_list)
 
         return discriminator, generator
 
-    def load(self, rel_path, n_epochs, gen_epochs):
-        path = rel_path+"trained_models/"
-        discriminator = keras.models.load_model(path+self.filename+"_discriminator.h5")
-        generator = keras.models.load_model(path+self.filename+"_generator.h5") 
+    def load(self, rel_path):
+        path = rel_path+self.path+"trained_model/"
+        discriminator = keras.models.load_model(path+"discriminator.h5")
+        generator = keras.models.load_model(path+"generator.h5") 
         return discriminator, generator
 
 
-def plot_training(n_epochs, g_loss, d_loss1, d_loss2, d_acc1, d_acc2, filename):
+    def plot_training(self, g_loss, d_loss1, d_loss2, d_acc1, d_acc2):
 
-    import seaborn as sns
-    import matplotlib.pyplot as plt
+        import seaborn as sns
+        import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(1,2,figsize=(12,6))
+        fig, ax = plt.subplots(1,2,figsize=(12,6))
 
-    sns.lineplot(range(1, n_epochs+1), g_loss, label='Generator loss', ax=ax[0])
-    sns.lineplot(range(1, n_epochs+1), d_loss1, label='Discriminator loss real', ax=ax[0])
-    sns.lineplot(range(1, n_epochs+1), d_loss2, label='Discriminator loss gen', ax=ax[0])
-    sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real', ax=ax[1])
-    sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen', ax=ax[1])
+        n_epochs=self.n_epochs
+        sns.lineplot(range(1, n_epochs+1), g_loss, label='Generator loss', ax=ax[0])
+        sns.lineplot(range(1, n_epochs+1), d_loss1, label='Discriminator loss real', ax=ax[0])
+        sns.lineplot(range(1, n_epochs+1), d_loss2, label='Discriminator loss gen', ax=ax[0])
+        sns.lineplot(range(1, n_epochs+1), d_acc1, label='Discriminator train acc real', ax=ax[1])
+        sns.lineplot(range(1, n_epochs+1), d_acc2, label='Discriminator train acc gen', ax=ax[1])
 
-    ax[0].set_ylabel("loss")
-    ax[1].set_ylabel("accuracy")
-    plt.tight_layout()
+        ax[0].set_ylabel("loss")
+        ax[1].set_ylabel("accuracy")
+        plt.tight_layout()
 
-    os.makedirs(os.path.dirname(RESULTS+"trained_models/"), exist_ok=True)
-    plt.savefig(RESULTS+"trained_models/"+filename+".png")
+        path=RESULTS+self.path+"trained_model/"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        plt.savefig(path+"training.png")
 
 
 # === MAIN EXECUTIONS ===
@@ -343,32 +343,33 @@ def _parallel_grid_search(model, n_traj, batch_size, epochs, gen_epochs, timeste
     gan.train(training_data=training_data,batch_size=batch_size)
 
 
-def grid_search(args):
+# def grid_search(args):
 
-    print("\n == Grid search training == ")
-    from joblib import Parallel, delayed
+#     print("\n == Grid search training == ")
+#     from joblib import Parallel, delayed
 
-    epochs_list = [80]
-    gen_epochs_list = [5,10]
-    noise_timesteps_list = [128]
-    print("epochs_list =", epochs_list)
-    print("gen_epochs_list =", gen_epochs_list)
-    print("noise_timesteps_list", noise_timesteps_list)
-    combinations = list(itertools.product(epochs_list, gen_epochs_list, noise_timesteps_list))
+#     epochs_list = [80]
+#     gen_epochs_list = [5,10]
+#     noise_timesteps_list = [128]
+#     print("epochs_list =", epochs_list)
+#     print("gen_epochs_list =", gen_epochs_list)
+#     print("noise_timesteps_list", noise_timesteps_list)
+#     combinations = list(itertools.product(epochs_list, gen_epochs_list, noise_timesteps_list))
 
-    Parallel(n_jobs=4)(
-        delayed(_parallel_grid_search)(args.model, args.n_traj, args.batch_size, epochs, 
-                                       gen_epochs, args.timesteps, noise_timesteps,margs.fixed_params)
-        for (epochs, gen_epochs, noise_timesteps, fixed_params) in combinations)
+#     Parallel(n_jobs=4)(
+#         delayed(_parallel_grid_search)(args.model, args.traj, args.batch_size, epochs, 
+#                                        gen_epochs, args.timesteps, noise_timesteps, args.fixed_params)
+#         for (epochs, gen_epochs, noise_timesteps, fixed_params) in combinations)
 
 
 def full_gan_training(args):
 
-    gan = GAN_abstraction(args.model, args.timesteps, args.noise_timesteps, lr=args.lr, 
-                          n_epochs=args.epochs, fixed_params=args.fixed_params,
-                          gen_epochs=args.gen_epochs)
+    gan = GAN_abstraction(model=args.model, fixed_params=args.fixed_params,
+                          timesteps=args.timesteps, noise_timesteps=args.noise_timesteps, 
+                          discr_lr=args.discr_lr, gen_lr=args.gen_lr,
+                          n_epochs=args.epochs, gen_epochs=args.gen_epochs)
 
-    training_data = gan.load_data(n_traj=args.n_traj, model=args.model, timesteps=args.timesteps)
+    training_data = gan.load_data(n_traj=args.traj, model=args.model, timesteps=args.timesteps)
 
     gan.train(training_data=training_data,  batch_size=args.batch_size)
 
@@ -381,14 +382,15 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
-    parser.add_argument("-n", "--n_traj", default=1000, type=int)
-    parser.add_argument("-t", "--timesteps", default=128, type=int)
-    parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--model", default="eSIR", type=str)
-    parser.add_argument("--epochs", default=5, type=int)
-    parser.add_argument("--gen_epochs", default=10, type=int)
+    parser.add_argument("--traj", default=1000, type=int)
+    parser.add_argument("--batch_size", default=128, type=int)
+    parser.add_argument("--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
+    parser.add_argument("--epochs", default=10, type=int)
+    parser.add_argument("--gen_epochs", default=1, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
-    parser.add_argument("--lr", default="0.0001", type=float)
+    parser.add_argument("--gen_lr", default="0.0001", type=float)
+    parser.add_argument("--discr_lr", default="0.0001", type=float)
 
     main(args=parser.parse_args())
