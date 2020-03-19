@@ -75,6 +75,7 @@ class GAN_abstraction:
         print("n_species = ", self.n_species)
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
+
         return trajectories, initial_states, params
 
     def generator(self):
@@ -207,8 +208,10 @@ class GAN_abstraction:
 
     def generate_real_samples(self, training_data, batch_size):
         trajectories, initial_states, params = training_data 
-        idxs = np.random.randint(0, len(trajectories), batch_size)
-        t, s, p = (trajectories[idxs], initial_states[idxs], params[idxs])
+        t_idxs = np.random.randint(0, len(trajectories), batch_size)
+        s_idxs = np.random.randint(0, len(trajectories), batch_size)
+        p_idxs = np.random.randint(0, len(trajectories), batch_size)
+        t, s, p = (trajectories[t_idxs], initial_states[s_idxs], params[p_idxs])
 
         return [t,s] if self.fixed_params==1 else [t,s,p]
 
@@ -218,8 +221,9 @@ class GAN_abstraction:
         noise_shape = (batch_size, self.noise_timesteps, self.n_species)
         noise = np.random.normal(loc=0., scale=1., size=noise_shape)
         # labels
-        idxs = np.random.randint(0, len(initial_states), batch_size)
-        s, p = (initial_states[idxs], params[idxs])
+        s_idxs = np.random.randint(0, len(initial_states), batch_size)
+        p_idxs = np.random.randint(0, len(params), batch_size)
+        s, p = (initial_states[s_idxs], params[p_idxs])
         return [noise,s] if self.fixed_params==1 else [noise,s,p]
 
     def generate_fake_samples(self, training_data, batch_size, generator):
@@ -235,8 +239,6 @@ class GAN_abstraction:
             return [gen_traj,s,p]
 
     def train(self, training_data, batch_size):
-        trajectories, initial_states, params = training_data 
-        # n_batches = int(len(initial_states) / batch_size)+1
 
         generator = self.generator()
         discriminator = self.discriminator()
@@ -284,10 +286,6 @@ class GAN_abstraction:
                 x_latent = self.generate_latent_samples(training_data, batch_size)
                 g_loss = gan.train_on_batch(x=x_latent, y=y_train_real)
 
-            # # debug
-            # print("\nreal=",s[0,:,0],t[0,:10,0],"\t",s[0,:,1],t[0,:10,1])
-            # print("gen=",s[0,:,0],gen_traj[0,:10,0],"\t",s[0,:,1],gen_traj[0,:10,1])
-
             d_loss1_list.append(d_loss1)
             d_loss2_list.append(d_loss2)
             g_loss_list.append(g_loss)
@@ -297,7 +295,6 @@ class GAN_abstraction:
             print(f"\n[Epoch {epoch + 1}]\t g_loss = {g_loss:.4f}", end="\t")
             print(f"d_loss1 = {d_loss1:.4f}\td_loss2 = {d_loss2:.4f}", end="\t")
             print(f"a1 = {int(100*d_acc1)}\ta2 = {int(100*d_acc2)}", end="\t")
-            # print(f"time = {time.time()-epoch_start:.2f}", end="\t")
 
         print("\n")
         execution_time(start=start, end=time.time())

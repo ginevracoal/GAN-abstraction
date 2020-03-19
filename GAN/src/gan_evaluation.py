@@ -49,14 +49,14 @@ class GAN_evaluator(GAN_abstraction):
 		params = np.expand_dims(params, axis=-1)
 		params = np.concatenate((params,params),axis=-1)
 
-		n_species = initial_states.shape[-1]
-		n_params = params.shape[1]
+		self.n_species = initial_states.shape[-1]
+		self.n_params = params.shape[1]
 
 		print("\ntrajectories.shape = ", trajectories.shape)
 		print("initial_states.shape = ", initial_states.shape)
 		print("params.shape = ", params.shape)
-		print("n_species = ", n_species)
-		print("n_params = ", n_params)
+		print("n_species = ", self.n_species)
+		print("n_params = ", self.n_params)
 		return trajectories, initial_states, params
 
 	# === DISTANCES ===
@@ -158,23 +158,17 @@ class GAN_evaluator(GAN_abstraction):
 		print(f"\nComputing trajectories on {len(initial_states)} initial states")
 		gen_traj = np.empty(shape=(len(initial_states), traj_per_state, timesteps, n_species))
 
-		for s, init_state in tqdm(enumerate(initial_states)):
-			print("\tinit_state = ", init_state)
-			ssa_trajectories = trajectories[s,:,:timesteps,:]
-			init_state = np.expand_dims(init_state, 1)
-			par = np.expand_dims(params[s,:], 0)
-		
-			for traj_idx, traj in enumerate(ssa_trajectories):			
-				noise = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, 
-					                   n_species=n_species)
-				# print(noise.shape, init_state.shape, par.shape)
-				if self.fixed_params==1:
-					generated_trajectories = generator.predict([noise, init_state])
-				else:
-					generated_trajectories = generator.predict([noise, init_state, par])
-				generated_trajectories = np.round(generated_trajectories)
-				gen_traj[s, traj_idx, :, :] = np.squeeze(generated_trajectories)
-			
+		for s_idx, s in tqdm(enumerate(initial_states)):
+			print("\tinit_state = ", s)
+			ssa_trajectories = trajectories[s_idx,:,:timesteps,:]
+			s = np.expand_dims(s, 1)
+			p = np.expand_dims(params[s_idx],0)
+			for t_idx, t in enumerate(ssa_trajectories):		
+				n = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, n_species=n_species)
+				latent_data = [n, s] if self.fixed_params==1 else [n, s, p]
+				generated_trajectories = np.round(generator.predict(latent_data))
+				gen_traj[s_idx, t_idx, :, :] = np.squeeze(generated_trajectories)
+
 		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
 		save_to_pickle(data=trajectories, relative_path=RESULTS+self.path+"trajectories/", 
                        filename="trajectories.pkl")	
@@ -200,10 +194,8 @@ class GAN_evaluator(GAN_abstraction):
 			gen_fixed_init = trajectories["gen"][init_state]
 
 			for s in range(n_species):
-				# print("\nssa: ", ssa_fixed_init[:10,:10,s])
-				# print("gen: ", gen_fixed_init[:10,:10,s])
 
-				for traj_idx in range(20):
+				for traj_idx in range(self.n_traj):
 					sns.lineplot(range(n_timesteps), ssa_fixed_init[traj_idx,:,s], ax=ax[s], 
 						         color="blue")
 					sns.lineplot(range(n_timesteps), gen_fixed_init[traj_idx,:,s], ax=ax[s], 
@@ -235,8 +227,6 @@ class GAN_evaluator(GAN_abstraction):
 
 			for s in range(n_species):
 				for t_idx, t in enumerate(chosen_timesteps):
-					# print("\nssa: ", ssa_fixed_init[:100,t,s])
-					# print("gen: ", gen_fixed_init[:100,t,s])
 
 					sns.distplot(ssa_fixed_init[:,t,s], label="SSA", ax=ax[s,t_idx], kde=False, 
 						         bins=bins)
@@ -285,7 +275,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("--model", default="eSIR", type=str)
-    parser.add_argument("--traj", default=1000, type=int)
+    parser.add_argument("--traj", default=20, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
