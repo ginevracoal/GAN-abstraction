@@ -208,11 +208,8 @@ class GAN_abstraction:
 
     def generate_real_samples(self, training_data, batch_size):
         trajectories, initial_states, params = training_data 
-        t_idxs = np.random.randint(0, len(trajectories), batch_size)
-        s_idxs = np.random.randint(0, len(trajectories), batch_size)
-        p_idxs = np.random.randint(0, len(trajectories), batch_size)
-        t, s, p = (trajectories[t_idxs], initial_states[s_idxs], params[p_idxs])
-
+        idxs = np.random.randint(0, len(trajectories), batch_size)
+        t, s, p = (trajectories[idxs], initial_states[idxs], params[idxs])
         return [t,s] if self.fixed_params==1 else [t,s,p]
 
     def generate_latent_samples(self, training_data, batch_size):
@@ -256,35 +253,38 @@ class GAN_abstraction:
         d_acc1_list=[]
         d_acc2_list=[]
 
+        n_batches = int(len(training_data[0])/batch_size)
+        half_batch = int(batch_size*0.5)
+
         start = time.time()
         for epoch in range(self.n_epochs):
-            epoch_start = time.time()
+            for _ in range(n_batches):
 
-            # == d1 training ==
+                # == d1 training ==
 
-            # if self.discr_noise==1:
-            #     discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, 
-            #                                  scale=0.01)
-            #     t = t+discr_noise
+                # if self.discr_noise==1:
+                #     discr_noise = generate_noise(batch_size, self.noise_timesteps, self.n_species, 
+                #                                  scale=0.01)
+                #     t = t+discr_noise
 
-            x_train_real = self.generate_real_samples(training_data, batch_size)
-            y_train_real = np.ones(batch_size)
-            d_loss1, d_acc1 = discriminator.train_on_batch(x_train_real, y_train_real)
+                x_train_real = self.generate_real_samples(training_data, half_batch)
+                y_train_real = np.ones(half_batch)
+                d_loss1, d_acc1 = discriminator.train_on_batch(x_train_real, y_train_real)
 
-            # == d2 training ==
-            noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
+                # == d2 training ==
+                # noise = generate_noise(batch_size, self.noise_timesteps, self.n_species)
+                # if self.discr_noise==1:
+                #     noise = noise+discr_noise
 
-            # if self.discr_noise==1:
-            #     noise = noise+discr_noise
+                x_train_fake = self.generate_fake_samples(training_data, half_batch, generator)
+                y_train_fake = np.zeros(half_batch)
+                d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
 
-            x_train_fake = self.generate_fake_samples(training_data, batch_size, generator)
-            y_train_fake = np.zeros(batch_size)
-            d_loss2, d_acc2 = discriminator.train_on_batch(x_train_fake, y_train_fake)
-
-            # == g training ==
-            for _ in range(self.gen_epochs*2):
-                x_latent = self.generate_latent_samples(training_data, batch_size)
-                g_loss = gan.train_on_batch(x=x_latent, y=y_train_real)
+                # == g training ==
+                for _ in range(self.gen_epochs):
+                    x_latent = self.generate_latent_samples(training_data, batch_size)            
+                    y_train_real = np.ones(batch_size)
+                    g_loss = gan.train_on_batch(x=x_latent, y=y_train_real)
 
             d_loss1_list.append(d_loss1)
             d_loss2_list.append(d_loss2)
