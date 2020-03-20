@@ -61,50 +61,25 @@ class GAN_evaluator(GAN_abstraction):
 
 	# === DISTANCES ===
 
-	def compute_distances(self, discriminator, generator, test_data):
-		timesteps = self.timesteps
-		noise_timesteps = self.noise_timesteps
+	def compute_distances(self, trajectories, bins=100):
 
-		trajectories, initial_states, params = test_data 
-		traj_per_state = trajectories.shape[1]
-		n_species = trajectories.shape[-1]
-		max_n_traj = int(traj_per_state/timesteps)*timesteps
+		n_init_states = trajectories["ssa"].shape[0]
+		traj_per_state = trajectories["ssa"].shape[1]
 
-		print(f"\nComputing histograms on {len(initial_states)} initial states")
-		bins = 100
-		gen_traj = np.empty(shape=(len(initial_states), max_n_traj, timesteps, n_species))
-		ssa_histograms_count = np.empty(shape=(len(initial_states), timesteps, n_species, bins))
-		ssa_histograms_x = np.empty(shape=(len(initial_states), timesteps, n_species, bins+1))
-		gen_histograms_count = np.empty(shape=(len(initial_states), timesteps, n_species, bins))
-		gen_histograms_x = np.empty(shape=(len(initial_states), timesteps, n_species, bins+1))
-		dist = np.empty(shape=(len(initial_states), timesteps, n_species))
+		print(f"\nComputing histograms on {n_init_states} initial states")
+		ssa_histograms_count = np.empty(shape=(n_init_states, self.timesteps, self.n_species, bins))
+		gen_histograms_count = np.empty(shape=(n_init_states, self.timesteps, self.n_species, bins))
+		ssa_histograms_x = np.empty(shape=(n_init_states, self.timesteps, self.n_species, bins+1))
+		gen_histograms_x = np.empty(shape=(n_init_states, self.timesteps, self.n_species, bins+1))
+		dist = np.empty(shape=(n_init_states, self.timesteps, self.n_species))
 
-		for s, init_state in tqdm(enumerate(initial_states)):
-			print("\tinit_state = ", init_state)
-			ssa_trajectories = trajectories[s,:max_n_traj,:timesteps,:]
-			init_state = np.expand_dims(init_state, 1)
-			par = np.expand_dims(params[s,:], 0)
-		
-			for traj_idx, traj in enumerate(ssa_trajectories):			
-				# print(noise.shape, init_state.shape, par.shape)
-				noise = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, 
-					                   n_species=n_species)
-				generated_trajectories = np.squeeze(generator.predict([noise, init_state, par]))
-				gen_traj[s, traj_idx, :, :] = generated_trajectories[:max_n_traj,:]
-			
-			# print("\ntraj shapes:", ssa_trajectories.shape, gen_traj.shape)
-			for t in range(timesteps):
-				for m in range(n_species): 
-					hist = np.histogram(ssa_trajectories[:,t,m], bins=bins)
-					ssa_histograms_count[s, t, m, :] = hist[0]
-					ssa_histograms_x[s, t, m, :] = hist[1]
+		for s in range(n_init_states):
+			for t in range(self.timesteps):
+				for m in range(self.n_species): 
 
-					hist = np.histogram(gen_traj[:,t,m], bins=bins)
-					gen_histograms_count[s, t, m, :] = hist[0]
-					gen_histograms_x[s, t, m, :] = hist[1]
-
-					dist[s, t, m] = wasserstein_distance(ssa_histograms_count[s,t,m,:], 
-					                                     gen_histograms_count[s,t,m,:]) 
+					ssa_traj = trajectories["ssa"][s, :, t, m]
+					gen_traj = trajectories["gen"][s, :, t, m]
+					dist[s, t, m] = wasserstein_distance(ssa_traj, gen_traj)
 
 		print("\nhistograms shapes =", ssa_histograms_count.shape, ssa_histograms_x.shape)
 		print("distances shape =", dist.shape)
@@ -113,37 +88,40 @@ class GAN_evaluator(GAN_abstraction):
 		              "gen_count":gen_histograms_count, "gen_x":gen_histograms_x,
 		              "wass_dist":dist}
 
-		save_to_pickle(data=distances, relative_path=RESULTS+self.path+"evaluations/", 
-			           filename="bins="+str(bins)+"_distances.pkl")	
-		return distances
+		return distances["wass_dist"]
 
-	def load_distances(self, rel_path, bins=100):
-		distances = load_from_pickle(path=rel_path+self.path+"evaluations/"+\
-			                              "bins="+str(bins)+"_distances.pkl")
-		print("\ndistances.shape = ", distances.shape)
-
-	def plot_evolving_distances(self, distances, labels):
+	def plot_evolving_distances(self, distances, labels=None):
 		import seaborn as sns 
 		import matplotlib.pyplot as plt
 
-		fig, ax = plt.subplots(1,1,figsize=(12,6))
+		n_init_states = distances.shape[0]
 
-		n_init_samples, n_timesteps, n_species = list(distances.shape)
+		for s in range(n_init_states):
 
-		for s in range(n_species):
-			timesteps = []
-			traj_values = []
-			for t in range(n_timesteps):
-				[timesteps.append(t) for i in range(n_init_samples)]
-				[traj_values.append(v) for v in distances[:,t,s]]
-			# print(len(timesteps), len(traj_values))
-			sns.lineplot(x=timesteps, y=traj_values, label=labels[s])
+			fig, ax = plt.subplots(1,1,figsize=(12,6))	
+			for m in range(self.n_species):
+				sns.lineplot(x=range(self.timesteps), y=distances[s,:,m])
+			ax.set_xlabel("timesteps")
 
+			path=RESULTS+self.path+"distances/"
+			os.makedirs(os.path.dirname(path), exist_ok=True)
+			plt.savefig(path+"evolving_dist_stateIdx="+str(s)+".png")
+			plt.close()
+
+		fig, ax = plt.subplots(1,1,figsize=(12,6))	
+		for m in range(self.n_species):
+			distances_sum_over_init_states = np.sum(distances[:,:,m], axis=0)
+			sns.lineplot(x=range(self.timesteps), y=distances_sum_over_init_states)
 		ax.set_xlabel("timesteps")
-		plt.tight_layout()
-		os.makedirs(os.path.dirname(RESULTS+self.path+"evaluations/"), exist_ok=True)
-		plt.savefig(RESULTS+self.path+"evaluations/"+"evolving_dist.png")
+
+		path=RESULTS+self.path
+		os.makedirs(os.path.dirname(path), exist_ok=True)
+		plt.savefig(path+"evolving_dist_sumOverStates.png")
 		plt.close()
+
+
+	# def plot_cumulative_distances():
+
 
 	# === TRAJECTORIES ===
 
@@ -171,11 +149,12 @@ class GAN_evaluator(GAN_abstraction):
 
 		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
 		save_to_pickle(data=trajectories, relative_path=RESULTS+self.path+"trajectories/", 
-                       filename="trajectories.pkl")	
+                       filename="trajectories_"+str(self.n_traj)+".pkl")	
 		return trajectories
 
 	def load_trajectories(self, rel_path):
-		trajectories = load_from_pickle(path=rel_path+self.path+"trajectories/trajectories.pkl")
+		path = rel_path+self.path+"trajectories/trajectories_"+str(self.n_traj)+".pkl"
+		trajectories = load_from_pickle(path=path)
 		print("trajectories['ssa'].shape = ", trajectories["ssa"].shape)
 		print("trajectories['gen'].shape = ", trajectories["gen"].shape)
 		return trajectories
@@ -259,18 +238,18 @@ def main(args):
 			                     discr_lr=args.discr_lr, gen_lr=args.gen_lr)
 
 		data = gan_eval.load_test_data(model=args.model)
-		d, g = gan_eval.load_gan(rel_path=RESULTS)
+		# d, g = gan_eval.load_gan(rel_path=RESULTS)
+		d, g = gan_eval.load_gan(rel_path=DATA)
 		
 		traj = gan_eval.compute_trajectories(discriminator=d, generator=g, test_data=data)
 		# traj = gan_eval.load_trajectories(rel_path=RESULTS)
-		gan_eval.plot_trajectories(trajectories=traj)
-		# gan_eval.plot_trajectories_dist(trajectories=traj)
 
-		# distances = gan_eval.compute_distances(discriminator=d, generator=g, test_data=data)
-		# # distances = gan_eval.load_distances(rel_path=RESULTS)
-		# gan_eval.plot_evolving_distances(distances["wass_dist"], labels=["S","I"])
-		# # gan_eval.plot_distances_distr(histograms["wass_dist"])
-		# exit()
+		gan_eval.plot_trajectories(trajectories=traj)
+		# # gan_eval.plot_trajectories_dist(trajectories=traj)
+
+		distances = gan_eval.compute_distances(trajectories=traj)
+		gan_eval.plot_evolving_distances(distances)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
@@ -280,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--gen_epochs", default=1, type=int)
+    parser.add_argument("--gen_epochs", default=10, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
     parser.add_argument("--gen_lr", default="0.0001", type=float)
     parser.add_argument("--discr_lr", default="0.0001", type=float)

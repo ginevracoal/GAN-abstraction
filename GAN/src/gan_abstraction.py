@@ -26,7 +26,7 @@ class GAN_abstraction:
         self.n_epochs=n_epochs
         self.gen_epochs=gen_epochs
 
-        self.architecture="2d_convolution"
+        self.architecture="conv2D"
         self.discr_noise=0
         self.batch_normalization=0
 
@@ -39,8 +39,8 @@ class GAN_abstraction:
         ## set filename
         self.path = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)
-        self.path = self.path+"_fixedPar/" if self.fixed_params==1 else self.path+"/"
+                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
+        self.path = self.path+"_fixPar/" if self.fixed_params==1 else self.path+"/"
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -92,7 +92,7 @@ class GAN_abstraction:
         if self.batch_normalization==1:
             inputs = BatchNormalization()(inputs)   
 
-        if self.architecture == "1d_convolution":
+        if self.architecture == "conv1D":
             x = Conv1D(64, 3)(inputs)
             x = LeakyReLU()(x)
             x = Conv1D(128, 3)(x)
@@ -101,7 +101,7 @@ class GAN_abstraction:
             x = Dense((self.timesteps)*(self.n_species), activation="relu")(x)
             outputs = Reshape((self.timesteps, self.n_species))(x)    
 
-        elif self.architecture == "channel_wise_convolution":
+        elif self.architecture == "ch_conv1D":
             channels_outputs = []
             for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
@@ -116,7 +116,7 @@ class GAN_abstraction:
                 channels_outputs.append(x)
             channels_outputs = Concatenate(axis=-1)(channels_outputs)
             outputs = Reshape((self.timesteps, self.n_species))(channels_outputs)
-        elif self.architecture == "2d_convolution":
+        elif self.architecture == "conv2D":
             x = Reshape((inputs.shape[1],inputs.shape[2],1))(inputs)  
             x = Conv2D(64,(2,2),padding="same")(x)
             x = LeakyReLU()(x)
@@ -147,13 +147,13 @@ class GAN_abstraction:
         if self.batch_normalization==1:
             inputs = BatchNormalization()(inputs)   
 
-        if self.architecture == "1d_convolution":
+        if self.architecture == "conv1D":
             x = Conv1D(32, 3, data_format="channels_last")(inputs)
             x = LeakyReLU()(x)
             x = Flatten()(x)
             x = Dropout(0.3)(x)
             outputs = Dense(1, activation="sigmoid")(x)
-        elif self.architecture == "channel_wise_convolution":
+        elif self.architecture == "ch_conv1D":
             channels_outputs = []
             for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
@@ -167,7 +167,7 @@ class GAN_abstraction:
                 channels_outputs.append(x)
             outputs = Concatenate(axis=-1)(channels_outputs)
             outputs = Dense(1, activation="sigmoid")(outputs)   
-        elif self.architecture == "2d_convolution":
+        elif self.architecture == "conv2D":
             x = Reshape((inputs.shape[1],inputs.shape[2],1))(inputs)  
             x = Conv2D(32,(2,2),padding="same")(x)
             x = LeakyReLU()(x)
@@ -221,6 +221,12 @@ class GAN_abstraction:
         s_idxs = np.random.randint(0, len(initial_states), batch_size)
         p_idxs = np.random.randint(0, len(params), batch_size)
         s, p = (initial_states[s_idxs], params[p_idxs])
+
+        # # campionamento da tutto il dataset
+        # s = np.random.randint(0, 50, batch_size)
+        # p_idxs = np.random.randint(0, len(params), batch_size)
+        # p = params[p_idxs]
+        
         return [noise,s] if self.fixed_params==1 else [noise,s,p]
 
     def generate_fake_samples(self, training_data, batch_size, generator):
@@ -396,7 +402,7 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", default=128, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--gen_epochs", default=1, type=int)
+    parser.add_argument("--gen_epochs", default=10, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
     parser.add_argument("--gen_lr", default="0.0001", type=float)
     parser.add_argument("--discr_lr", default="0.0001", type=float)
