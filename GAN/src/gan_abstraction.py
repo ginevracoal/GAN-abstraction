@@ -39,7 +39,7 @@ class GAN_abstraction:
         ## set filename
         self.path = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
+                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)#+"_sample"
         self.path = self.path+"_fixPar/" if self.fixed_params==1 else self.path+"/"
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
@@ -214,19 +214,21 @@ class GAN_abstraction:
 
     def generate_latent_samples(self, training_data, batch_size):
         _, initial_states, params = training_data 
+
         # noise
         noise_shape = (batch_size, self.noise_timesteps, self.n_species)
         noise = np.random.normal(loc=0., scale=1., size=noise_shape)
+
         # labels
         s_idxs = np.random.randint(0, len(initial_states), batch_size)
         p_idxs = np.random.randint(0, len(params), batch_size)
         s, p = (initial_states[s_idxs], params[p_idxs])
 
         # # campionamento da tutto il dataset
-        # s = np.random.randint(0, 50, batch_size)
+        # s = np.random.randint(0, 50, (batch_size,1,2))
         # p_idxs = np.random.randint(0, len(params), batch_size)
         # p = params[p_idxs]
-        
+
         return [noise,s] if self.fixed_params==1 else [noise,s,p]
 
     def generate_fake_samples(self, training_data, batch_size, generator):
