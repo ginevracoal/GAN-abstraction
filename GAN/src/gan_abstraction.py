@@ -26,6 +26,7 @@ class GAN_abstraction:
         self.n_epochs=n_epochs
         self.gen_epochs=gen_epochs
 
+        self.fullSamp=0
         self.architecture="conv2D"
         self.discr_noise=0
         self.batch_normalization=0
@@ -39,8 +40,9 @@ class GAN_abstraction:
         ## set filename
         self.path = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)#+"_sample"
-        self.path = self.path+"_fixPar/" if self.fixed_params==1 else self.path+"/"
+                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
+        self.path = self.path+"_fullSamp" if self.fullSamp else self.path
+        self.path = self.path+"_fixPar/" if self.fixed_params else self.path+"/"
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -58,16 +60,17 @@ class GAN_abstraction:
         traj_simulations = load_from_pickle(path=path+filename+".pickle")
         print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
 
-        trajectories = traj_simulations["X"][:n_traj,:timesteps,:]
-        initial_states = traj_simulations["Y_s0"][:n_traj]
-        params = traj_simulations["Y_par"][:n_traj]
+        idxs = np.random.randint(0, len(traj_simulations["X"]), n_traj)
+        trajectories = traj_simulations["X"][idxs,:timesteps,:]
+        initial_states = traj_simulations["Y_s0"][idxs]
+        params = traj_simulations["Y_par"][idxs]
         initial_states = np.expand_dims(initial_states, axis=1)
 
         self.n_species = initial_states.shape[-1]
         self.n_params = params.shape[1]
 
         params = np.expand_dims(params, axis=-1)
-        params = np.tile(params,(1,self.n_species))
+        params = np.repeat(params, self.n_species, axis=-1)
 
         print("\ntrajectories.shape = ", trajectories.shape)
         print("initial_states.shape = ", initial_states.shape)
@@ -84,12 +87,12 @@ class GAN_abstraction:
         init_states = Input(shape=(1,self.n_species))
         params = Input(shape=(self.n_params,self.n_species))
 
-        if self.fixed_params==1:
+        if self.fixed_params:
             inputs = Concatenate(axis=1)([init_states,noise]) 
         else:
             inputs = Concatenate(axis=1)([init_states,noise,params])
 
-        if self.batch_normalization==1:
+        if self.batch_normalization:
             inputs = BatchNormalization()(inputs)   
 
         if self.architecture == "conv1D":
@@ -126,7 +129,7 @@ class GAN_abstraction:
             x = Dense((self.timesteps)*(self.n_species), activation="relu")(x)
             outputs = Reshape((self.timesteps, self.n_species))(x)   
 
-        if self.fixed_params==1:
+        if self.fixed_params:
             model = Model(inputs=[noise,init_states], outputs=outputs)
         else:
             model = Model(inputs=[noise,init_states,params], outputs=outputs)        
@@ -139,12 +142,12 @@ class GAN_abstraction:
         init_states = Input(shape=(1,self.n_species))
         params = Input(shape=(self.n_params,self.n_species))
         
-        if self.fixed_params==1:
+        if self.fixed_params:
             inputs = Concatenate(axis=1)([init_states,trajectories]) 
         else:
             inputs = Concatenate(axis=1)([init_states,trajectories,params])
 
-        if self.batch_normalization==1:
+        if self.batch_normalization:
             inputs = BatchNormalization()(inputs)   
 
         if self.architecture == "conv1D":
@@ -175,7 +178,7 @@ class GAN_abstraction:
             x = Flatten()(x)
             outputs = Dense(1, activation="sigmoid")(x)
 
-        if self.fixed_params==1:
+        if self.fixed_params:
             model = Model(inputs=[trajectories,init_states], outputs=outputs)
         else:
             model = Model(inputs=[trajectories,init_states,params], outputs=outputs)
@@ -189,7 +192,7 @@ class GAN_abstraction:
 
         discriminator.trainable = False
 
-        if self.fixed_params==1:
+        if self.fixed_params:
             noise, init_states = generator.input
             gen_traj = generator.output
             gan_output = discriminator([gen_traj, init_states])
@@ -220,14 +223,16 @@ class GAN_abstraction:
         noise = np.random.normal(loc=0., scale=1., size=noise_shape)
 
         # labels
-        s_idxs = np.random.randint(0, len(initial_states), batch_size)
-        p_idxs = np.random.randint(0, len(params), batch_size)
-        s, p = (initial_states[s_idxs], params[p_idxs])
-
-        # # campionamento da tutto il dataset
-        # s = np.random.randint(0, 50, (batch_size,1,2))
-        # p_idxs = np.random.randint(0, len(params), batch_size)
-        # p = params[p_idxs]
+        if self.fullSamp:
+            # sample all possible labels (just on eSIR for now)
+            s = np.random.randint(0, 50, (batch_size,1,2))
+            p_idxs = np.random.randint(0, len(params), batch_size)
+            p = params[p_idxs]
+        else:
+            # sample from dataset values
+            s_idxs = np.random.randint(0, len(initial_states), batch_size)
+            p_idxs = np.random.randint(0, len(params), batch_size)
+            s, p = (initial_states[s_idxs], params[p_idxs])
 
         return [noise,s] if self.fixed_params==1 else [noise,s,p]
 
@@ -236,7 +241,7 @@ class GAN_abstraction:
         gen_traj = generator.predict(latent_data)
         gen_traj = np.round(gen_traj)  
 
-        if self.fixed_params==1:
+        if self.fixed_params:
             _, s = latent_data
             return [gen_traj,s]
         else:

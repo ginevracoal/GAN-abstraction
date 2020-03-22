@@ -42,21 +42,24 @@ class GAN_evaluator(GAN_abstraction):
 		traj_simulations = load_from_pickle(path=path+filename+".pickle")
 		print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
 
-		trajectories = traj_simulations["X"][:,:self.n_traj,:,:]
+		idxs = np.random.randint(0, len(traj_simulations["X"]), self.n_traj)
+		trajectories = traj_simulations["X"][:,idxs]
 		initial_states = traj_simulations["Y_s0"]
 		params = traj_simulations["Y_par"]
 		initial_states = np.expand_dims(initial_states, axis=1)
-		params = np.expand_dims(params, axis=-1)
-		params = np.concatenate((params,params),axis=-1)
-
+		
 		self.n_species = initial_states.shape[-1]
 		self.n_params = params.shape[1]
+
+		params = np.expand_dims(params, axis=-1)
+		params = np.repeat(params, self.n_species, axis=-1)
 
 		print("\ntrajectories.shape = ", trajectories.shape)
 		print("initial_states.shape = ", initial_states.shape)
 		print("params.shape = ", params.shape)
 		print("n_species = ", self.n_species)
 		print("n_params = ", self.n_params)
+
 		return trajectories, initial_states, params
 
 	# === DISTANCES ===
@@ -165,25 +168,24 @@ class GAN_evaluator(GAN_abstraction):
 
 		n_init_states, traj_per_state, n_timesteps, n_species = trajectories["ssa"].shape
 		
-		for init_state in range(n_init_states):
+		for s in range(n_init_states):
 
-			fig, ax = plt.subplots(2,1,figsize=(12,6))
+			fig, ax = plt.subplots(n_species,1,figsize=(12,6))
 
-			ssa_fixed_init = trajectories["ssa"][init_state]
-			gen_fixed_init = trajectories["gen"][init_state]
+			# randomly choose n_traj trajectories for each init state
+			idxs = np.random.randint(0, traj_per_state, self.n_traj)
 
-			for s in range(n_species):
-
-				for traj_idx in range(self.n_traj):
-					sns.lineplot(range(n_timesteps), ssa_fixed_init[traj_idx,:,s], ax=ax[s], 
+			for m in range(n_species):
+				for idx in idxs:
+					sns.lineplot(range(n_timesteps), trajectories["ssa"][s,idx,:,m], ax=ax[m], 
 						         color="blue")
-					sns.lineplot(range(n_timesteps), gen_fixed_init[traj_idx,:,s], ax=ax[s], 
+					sns.lineplot(range(n_timesteps), trajectories["gen"][s,idx,:,m], ax=ax[m], 
 						         color="orange")
-					ax[s].set_xlabel("timesteps")
+					ax[m].set_xlabel("timesteps")
 
 			path=RESULTS+self.path+"trajectories/"
 			os.makedirs(os.path.dirname(path), exist_ok=True)
-			plt.savefig(path+"trajectories_stateIdx="+str(init_state)+".png")
+			plt.savefig(path+"trajectories_stateIdx="+str(s)+".png")
 			plt.close()
 
 	def plot_trajectories_dist(self, trajectories, bins=20):
@@ -238,17 +240,16 @@ def main(args):
 			                     discr_lr=args.discr_lr, gen_lr=args.gen_lr)
 
 		data = gan_eval.load_test_data(model=args.model)
-		# d, g = gan_eval.load_gan(rel_path=RESULTS)
-		d, g = gan_eval.load_gan(rel_path=DATA)
+		d, g = gan_eval.load_gan(rel_path=RESULTS)
+		# d, g = gan_eval.load_gan(rel_path=DATA)
 		
 		traj = gan_eval.compute_trajectories(discriminator=d, generator=g, test_data=data)
 		# traj = gan_eval.load_trajectories(rel_path=RESULTS)
-
 		gan_eval.plot_trajectories(trajectories=traj)
 		# # gan_eval.plot_trajectories_dist(trajectories=traj)
 
-		distances = gan_eval.compute_distances(trajectories=traj)
-		gan_eval.plot_evolving_distances(distances)
+		# distances = gan_eval.compute_distances(trajectories=traj)
+		# gan_eval.plot_evolving_distances(distances)
 
 
 if __name__ == "__main__":
