@@ -26,8 +26,8 @@ class GAN_abstraction:
         self.n_epochs=n_epochs
         self.gen_epochs=gen_epochs
 
-        self.fullSamp=0
-        self.architecture="conv2D"
+        self.fullSamp=1
+        self.architecture="ch_conv1D"
         self.discr_noise=0
         self.batch_normalization=0
 
@@ -234,7 +234,7 @@ class GAN_abstraction:
             p_idxs = np.random.randint(0, len(params), batch_size)
             s, p = (initial_states[s_idxs], params[p_idxs])
 
-        return [noise,s] if self.fixed_params==1 else [noise,s,p]
+        return [noise,s] if self.fixed_params else [noise,s,p]
 
     def generate_fake_samples(self, training_data, batch_size, generator):
         latent_data = self.generate_latent_samples(training_data, batch_size)
@@ -406,10 +406,10 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("--traj", default=1000, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
-    parser.add_argument("--timesteps", default=128, type=int)
+    parser.add_argument("--timesteps", default=32, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
     parser.add_argument("--epochs", default=10, type=int)
-    parser.add_argument("--gen_epochs", default=10, type=int)
+    parser.add_argument("--gen_epochs", default=2, type=int)
     parser.add_argument("--fixed_params", default=1, type=int)
     parser.add_argument("--gen_lr", default="0.0001", type=float)
     parser.add_argument("--discr_lr", default="0.0001", type=float)
