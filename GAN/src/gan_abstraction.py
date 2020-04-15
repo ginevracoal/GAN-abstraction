@@ -13,6 +13,7 @@ import time
 from directories import *
 import os
 import itertools
+import random
 
 
 class GAN_abstraction:
@@ -37,12 +38,12 @@ class GAN_abstraction:
         self.gen_lr=gen_lr
         self.discr_lr=discr_lr
 
-        ## set filename
-        self.path = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
+        ## set name
+        path = model+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
                     "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
-        self.path = self.path+"_fullSamp" if self.fullSamp else self.path
-        self.path = self.path+"_fixPar/" if self.fixed_params else self.path+"/"
+        path = path+"_fullSamp" if self.fullSamp else path
+        self.name = path+"_fixPar/" if self.fixed_params else path+"/"
 
     def load_data(self, n_traj, model, timesteps, path="../../SSA/data/train/"):
         if model == "SIR":
@@ -248,7 +249,8 @@ class GAN_abstraction:
             _, s, p = latent_data
             return [gen_traj,s,p]
 
-    def train(self, training_data, batch_size):
+    def train(self, training_data, batch_size, seed=0):
+        random.seed(seed)
 
         generator = self.generator()
         discriminator = self.discriminator()
@@ -312,22 +314,22 @@ class GAN_abstraction:
         print("\n")
         execution_time(start=start, end=time.time())
 
-        path = RESULTS+self.path+"trained_model/"
+        self.plot_training(g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, d_acc2_list)
+
+        return discriminator, generator
+
+    def save(self, discriminator, generator):
+        path = RESULTS+self.name+"trained_model/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         print("\nSaving:"+"\n"+path+"discriminator.h5"+"\n"+path+"generator.h5")
         discriminator.save(path+"discriminator.h5")
         generator.save(path+"generator.h5")
 
-        self.plot_training(g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, d_acc2_list)
-
-        return discriminator, generator
-
     def load(self, rel_path):
-        path = rel_path+self.path+"trained_model/"
+        path = rel_path+self.name+"trained_model/"
         discriminator = keras.models.load_model(path+"discriminator.h5")
         generator = keras.models.load_model(path+"generator.h5") 
         return discriminator, generator
-
 
     def plot_training(self, g_loss, d_loss1, d_loss2, d_acc1, d_acc2):
 
@@ -347,7 +349,7 @@ class GAN_abstraction:
         ax[1].set_ylabel("accuracy")
         plt.tight_layout()
 
-        path=RESULTS+self.path+"trained_model/"
+        path=RESULTS+self.name+"trained_model/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         plt.savefig(path+"training.png")
 
@@ -391,8 +393,8 @@ def full_gan_training(args):
                           n_epochs=args.epochs, gen_epochs=args.gen_epochs)
 
     training_data = gan.load_data(n_traj=args.traj, model=args.model, timesteps=args.timesteps)
-
-    gan.train(training_data=training_data,  batch_size=args.batch_size)
+    discriminator, generator = gan.train(training_data=training_data,  batch_size=args.batch_size)
+    self.save(discriminator, generator)
 
 
 def main(args):
