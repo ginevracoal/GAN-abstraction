@@ -314,7 +314,8 @@ class GAN_abstraction:
         print("\n")
         execution_time(start=start, end=time.time())
 
-        self.plot_training(g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, d_acc2_list)
+        self.fig = self.plot_training(g_loss_list, d_loss1_list, d_loss2_list, d_acc1_list, 
+                                       d_acc2_list)
 
         return discriminator, generator
 
@@ -324,6 +325,8 @@ class GAN_abstraction:
         print("\nSaving:"+"\n"+path+"discriminator.h5"+"\n"+path+"generator.h5")
         discriminator.save(path+"discriminator.h5")
         generator.save(path+"generator.h5")
+
+        self.fig.savefig(path+"training.png")
 
     def load(self, rel_path):
         path = rel_path+self.name+"trained_model/"
@@ -349,10 +352,7 @@ class GAN_abstraction:
         ax[1].set_ylabel("accuracy")
         plt.tight_layout()
 
-        path=RESULTS+self.name+"trained_model/"
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        plt.savefig(path+"training.png")
-
+        return plt
 
 # === MAIN EXECUTIONS ===
 
@@ -394,7 +394,7 @@ def full_gan_training(args):
 
     training_data = gan.load_data(n_traj=args.traj, model=args.model, timesteps=args.timesteps)
     discriminator, generator = gan.train(training_data=training_data,  batch_size=args.batch_size)
-    self.save(discriminator, generator)
+    gan.save(discriminator, generator)
 
 
 def main(args):

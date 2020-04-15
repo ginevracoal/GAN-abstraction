@@ -25,11 +25,11 @@ class GAN_ensemble(GAN_abstraction):
         self.n_networks = n_networks
         self.classifiers = None
 
-        name = "GANens_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
+        name = str(model)+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
                     "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
         name = name+"_fixPar" if fixed_params else name
-        self.name = name
+        self.name = name+"_GANens"
 
     def train(self, training_data, batch_size):
         classifiers = []
@@ -43,15 +43,16 @@ class GAN_ensemble(GAN_abstraction):
             classifier.n_species = self.n_species 
             classifier.n_params = self.n_params
             discr, gen = classifier.train(training_data=training_data, batch_size=batch_size, seed=idx)
-            self.save(discr, gen, idx)
+            self.save(discr, gen, idx, classifier.fig)
 
-    def save(self, discriminator, generator, idx):
+    def save(self, discriminator, generator, idx, fig):
         print("\nSaving ", self.name, idx)
-        path = RESULTS+self.name+"/"
+        path = RESULTS+self.name+"/trained_models/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
         discriminator.save(path+"discr_"+str(idx)+".h5")
         generator.save(path+"gen_"+str(idx)+".h5")
+        fig.savefig(path+"training_"+str(idx)+".png")
 
     def load(relpath):
         path = RESULTS+self.name+"/"
