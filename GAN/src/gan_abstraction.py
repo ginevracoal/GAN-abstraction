@@ -162,7 +162,6 @@ class GAN_abstraction:
             for c in range(self.n_species):
                 select_channel = Lambda(lambda w: w[:,:,c])
                 x = select_channel(inputs)
-                print(x.shape)
                 x = Reshape((x.shape[1],1))(x)
                 x = Conv1D(32, 3, data_format="channels_last")(x)
                 x = LeakyReLU()(x)
@@ -330,8 +329,10 @@ class GAN_abstraction:
 
     def load(self, rel_path):
         path = rel_path+self.name+"trained_model/"
-        discriminator = keras.models.load_model(path+"discriminator.h5")
-        generator = keras.models.load_model(path+"generator.h5") 
+
+        if idx is None:
+            discriminator = keras.models.load_model(path+"discriminator.h5")
+            generator = keras.models.load_model(path+"generator.h5") 
         return discriminator, generator
 
     def plot_training(self, g_loss, d_loss1, d_loss2, d_acc1, d_acc2):
