@@ -50,23 +50,26 @@ class GAN_ensemble(GAN_abstraction):
         path = RESULTS+self.name+"/trained_models/"
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        discriminator.save(path+"discr_"+str(idx)+".h5")
-        generator.save(path+"gen_"+str(idx)+".h5")
+        discriminator.save(path+"discriminator_"+str(idx)+".h5")
+        generator.save(path+"generator_"+str(idx)+".h5")
         fig.savefig(path+"training_"+str(idx)+".png")
 
-    def load(relpath):
-        path = RESULTS+self.name+"/"
+    def load(self, rel_path):
+        path = RESULTS+self.name+"/trained_models/"
 
-        classifiers = []
+        discriminators = []
+        generators = []
         for idx in range(self.n_networks):
             classifier = GAN_abstraction(model=self.model, fixed_params=self.fixed_params,
                           timesteps=self.timesteps, noise_timesteps=self.noise_timesteps, 
                           discr_lr=self.discr_lr, gen_lr=self.gen_lr,
-                          n_epochs=self.epochs, gen_epochs=self.gen_epochs)
-            discr, gen = classifier.load(relpath=relpath, idx=idx)
-            classifiers.append({f"discr_{idx}":discr, f"gen_{idx}":gen})
+                          n_epochs=self.n_epochs, gen_epochs=self.gen_epochs)
+            discr = keras.models.load_model(path+"discriminator_"+str(idx)+".h5")
+            gen = keras.models.load_model(path+"generator_"+str(idx)+".h5") 
+            discriminators.append(discr)
+            generators.append(gen)
 
-        return classifiers
+        return discriminators, generators
 
 def main(args):
 
@@ -85,7 +88,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("--traj", default=1000, type=int)
-    parser.add_argument("--networks", default=10, type=int)
+    parser.add_argument("--networks", default=5, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--timesteps", default=32, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)

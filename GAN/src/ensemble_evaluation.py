@@ -42,7 +42,7 @@ class EnsembleEvaluator(GAN_ensemble):
 		traj_simulations = load_from_pickle(path=path+filename+".pickle")
 		print("traj_simulations: ", [print(key,val.shape) for key,val in traj_simulations.items()])
 
-		idxs = np.random.randint(0, len(traj_simulations["X"]), self.n_traj)
+		idxs = np.random.randint(0, len(traj_simulations["X"]), self.n_traj*self.n_networks)
 		trajectories = traj_simulations["X"][:,idxs]
 		initial_states = traj_simulations["Y_s0"]
 		params = traj_simulations["Y_par"]
@@ -69,12 +69,12 @@ class EnsembleEvaluator(GAN_ensemble):
 		noise_timesteps = self.noise_timesteps
 
 		trajectories, initial_states, params = test_data 
-		traj_per_state = trajectories.shape[1]
+		traj_per_state = int(trajectories.shape[1]/self.n_networks)
 		n_species = trajectories.shape[-1]
 
 		print(f"\nComputing trajectories on {len(initial_states)} initial states")
-		gen_traj = np.empty(shape=(len(initial_states), traj_per_state*self.n_networks, 
-			                timesteps, n_species))
+
+		gen_traj = []#np.empty(shape=(len(initial_states), traj_per_state, timesteps, n_species))
 
 		for s_idx, s in tqdm(enumerate(initial_states)):
 			print("\tinit_state = ", s)
@@ -83,15 +83,15 @@ class EnsembleEvaluator(GAN_ensemble):
 			p = np.expand_dims(params[s_idx],0)
 
 			generated_trajectories = []
-			for traj in ssa_trajectories:		
+			for _ in range(traj_per_state):		
 				n = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, n_species=n_species)
 				latent_data = [n, s] if self.fixed_params==1 else [n, s, p]
 				for generator in generators:
 					generated_trajectories.append(np.round(generator.predict(latent_data)))
 			
-			gen_traj[s_idx, :, :, :] = np.squeeze(generated_trajectories)
+			gen_traj.append(np.squeeze(generated_trajectories))
 
-		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
+		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": np.array(gen_traj)}
 		save_to_pickle(data=trajectories, relative_path=RESULTS+self.name+"/trajectories/", 
                        filename="trajectories_"+str(self.n_traj)+".pkl")	
 		return trajectories
@@ -108,7 +108,7 @@ class EnsembleEvaluator(GAN_ensemble):
 		import matplotlib.pyplot as plt
 
 		n_init_states, traj_per_state, n_timesteps, n_species = trajectories["ssa"].shape
-		
+
 		for s in range(n_init_states):
 
 			fig, ax = plt.subplots(n_species,1,figsize=(12,6))

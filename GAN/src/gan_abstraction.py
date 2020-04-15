@@ -28,7 +28,7 @@ class GAN_abstraction:
         self.gen_epochs=gen_epochs
 
         self.fullSamp=1
-        self.architecture="ch_conv1D"
+        self.architecture="conv2D"
         self.discr_noise=0
         self.batch_normalization=0
 
