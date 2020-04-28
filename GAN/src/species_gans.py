@@ -17,6 +17,7 @@ from gan_evaluation import GAN_evaluator
 class SpeciesGANs(GAN_abstraction):
     def __init__(self, model, timesteps, noise_timesteps, fixed_params, gen_lr, discr_lr, n_epochs, 
                  gen_epochs):
+        self.architecture = "conv1D"
         super(SpeciesGANs, self).__init__(model, timesteps, noise_timesteps, fixed_params, gen_lr, 
                                           discr_lr, n_epochs, gen_epochs)
 
@@ -39,7 +40,7 @@ class SpeciesGANs(GAN_abstraction):
                           n_epochs=self.n_epochs, gen_epochs=self.gen_epochs)
             classifier.n_species = 1
             classifier.n_params = self.n_params
-            classifier.architecture = "conv1D"
+            classifier.architecture = self.architecture
 
             discr, gen = classifier.train(training_data=specie_data, batch_size=batch_size, seed=idx)
             self.save(discr, gen, idx, classifier.fig)
@@ -163,32 +164,33 @@ def main(args):
                       n_epochs=args.epochs, gen_epochs=args.gen_epochs)
     training_data = gan.load_data(n_traj=args.traj, model=args.model, timesteps=args.timesteps)
     
-    # species_gans = gan.train(training_data=training_data,  batch_size=args.batch_size)
-    species_gans = gan.load(rel_path=RESULTS)
+    species_gans = gan.train(training_data=training_data,  batch_size=args.batch_size)
+    # species_gans = gan.load(rel_path=RESULTS)
 
     # === eval ===
-    species_eval = SpeciesEval(model=args.model, fixed_params=args.fixed_params, n_traj=args.traj,
+    species_eval = SpeciesEval(model=args.model, fixed_params=args.fixed_params, 
+                             n_traj=args.eval_traj,
                              timesteps=args.timesteps, noise_timesteps=args.noise_timesteps, 
                              n_epochs=args.epochs, gen_epochs=args.gen_epochs, 
                              discr_lr=args.discr_lr, gen_lr=args.gen_lr)
 
     test_data = species_eval.load_test_data(model=args.model)
-    # traj = species_eval.compute_trajectories(species_gans=species_gans, test_data=test_data)
-    traj = species_eval.load_trajectories(rel_path=RESULTS)
-    species_eval.plot_trajectories(trajectories=traj, n_traj=10)
+    traj = species_eval.compute_trajectories(species_gans=species_gans, test_data=test_data)
+    # traj = species_eval.load_trajectories(rel_path=RESULTS)
+    species_eval.plot_trajectories(trajectories=traj, n_traj=args.eval_traj)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Conditional GAN.")
     parser.add_argument("--model", default="eSIR", type=str)
     parser.add_argument("--traj", default=1000, type=int)
-    parser.add_argument("--networks", default=5, type=int)
+    parser.add_argument("--eval_traj", default=10, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--timesteps", default=32, type=int)
     parser.add_argument("--noise_timesteps", default=128, type=int)
     parser.add_argument("--epochs", default=10, type=int)
     parser.add_argument("--gen_epochs", default=2, type=int)
-    parser.add_argument("--fixed_params", default=1, type=int)
+    parser.add_argument("--fixed_params", default=0, type=int)
     parser.add_argument("--gen_lr", default="0.0001", type=float)
     parser.add_argument("--discr_lr", default="0.0001", type=float)
 
