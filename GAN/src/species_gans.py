@@ -17,13 +17,13 @@ from gan_evaluation import GAN_evaluator
 class SpeciesGANs(GAN_abstraction):
     def __init__(self, model, timesteps, noise_timesteps, fixed_params, gen_lr, discr_lr, n_epochs, 
                  gen_epochs):
-        self.architecture = "conv1D"
         super(SpeciesGANs, self).__init__(model, timesteps, noise_timesteps, fixed_params, gen_lr, 
                                           discr_lr, n_epochs, gen_epochs)
 
+        self.architecture = "conv1D"
         name = str(model)+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
+                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)
         name = name+"_fixPar" if fixed_params else name
         self.name = name+"_species"
 
@@ -85,7 +85,7 @@ class SpeciesEval(GAN_evaluator):
                                           discr_lr, n_epochs, gen_epochs, n_traj)
         name = str(model)+"_t="+str(timesteps)+"_tNoise="+str(noise_timesteps)+\
                     "_ep="+str(n_epochs)+"_epG="+str(gen_epochs)+\
-                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)+"_"+str(self.architecture)
+                    "_lrD="+str(discr_lr)+"_lrG="+str(gen_lr)
         name = name+"_fixPar" if fixed_params else name
         self.path = name+"_species/"
 
@@ -100,11 +100,10 @@ class SpeciesEval(GAN_evaluator):
             traj = super(SpeciesEval, self).compute_trajectories(discriminator, generator, 
                                             specie_data, int(specie_idx))
             species_traj.update({str(specie_idx):traj})
-
-        self.save_trajectories(data=species_traj)
+        
         return species_traj
 
-    def save_trajectories(data):
+    def save_trajectories(self, data):
 
         for specie_idx, specie_gan in data.items():
             filename = "trajectories_"+str(self.n_traj)+"_"+str(specie_idx)+".pkl"
@@ -135,7 +134,7 @@ class SpeciesEval(GAN_evaluator):
             idxs = np.random.randint(0, self.n_traj, n_traj)
 
             # 20 init states grid
-            fig, axs = plt.subplots(4,5,figsize=(10,4),dpi=100)
+            fig, axs = plt.subplots(4,5,figsize=(12,6), dpi=300)
 
             for s, ax in enumerate(axs.reshape(-1)): 
                 for idx in idxs:
@@ -176,6 +175,7 @@ def main(args):
 
     test_data = species_eval.load_test_data(model=args.model)
     traj = species_eval.compute_trajectories(species_gans=species_gans, test_data=test_data)
+    species_eval.save_trajectories(data=traj)
     # traj = species_eval.load_trajectories(rel_path=RESULTS)
     species_eval.plot_trajectories(trajectories=traj, n_traj=args.eval_traj)
 
