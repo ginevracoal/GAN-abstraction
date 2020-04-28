@@ -27,7 +27,7 @@ class GAN_abstraction:
         self.n_epochs=n_epochs
         self.gen_epochs=gen_epochs
 
-        self.fullSamp=1
+        self.fullSamp=0
         self.architecture="conv2D"
         self.discr_noise=0
         self.batch_normalization=0
@@ -79,7 +79,6 @@ class GAN_abstraction:
         print("n_species = ", self.n_species)
         print("n_params = ", self.n_params)
         print("noise_timesteps = ", self.noise_timesteps)
-
         return trajectories, initial_states, params
 
     def generator(self):
@@ -330,9 +329,8 @@ class GAN_abstraction:
     def load(self, rel_path):
         path = rel_path+self.name+"trained_model/"
 
-        if idx is None:
-            discriminator = keras.models.load_model(path+"discriminator.h5")
-            generator = keras.models.load_model(path+"generator.h5") 
+        discriminator = keras.models.load_model(path+"discriminator.h5")
+        generator = keras.models.load_model(path+"generator.h5") 
         return discriminator, generator
 
     def plot_training(self, g_loss, d_loss1, d_loss2, d_acc1, d_acc2):

@@ -21,6 +21,7 @@ class GAN_evaluator(GAN_abstraction):
 			                                n_epochs=n_epochs, gen_epochs=gen_epochs,
 											gen_lr=gen_lr, discr_lr=discr_lr)
 		self.n_traj=n_traj
+		self.path = self.name
 
 	def load_gan(self, rel_path):
 		return super(GAN_evaluator, self).load(rel_path=rel_path)
@@ -122,13 +123,9 @@ class GAN_evaluator(GAN_abstraction):
 		plt.savefig(path+"evolving_dist_sumOverStates.png")
 		plt.close()
 
-
-	# def plot_cumulative_distances():
-
-
 	# === TRAJECTORIES ===
 
-	def compute_trajectories(self, discriminator, generator, test_data):
+	def compute_trajectories(self, discriminator, generator, test_data, idx=None):
 		timesteps = self.timesteps
 		noise_timesteps = self.noise_timesteps
 
@@ -147,17 +144,25 @@ class GAN_evaluator(GAN_abstraction):
 			for t_idx, t in enumerate(ssa_trajectories):		
 				n = generate_noise(batch_size=1, noise_timesteps=noise_timesteps, n_species=n_species)
 				latent_data = [n, s] if self.fixed_params==1 else [n, s, p]
-				generated_trajectories = np.round(generator.predict(latent_data))
-				gen_traj[s_idx, t_idx, :, :] = np.squeeze(generated_trajectories)
+				generated_trajectories = np.squeeze(np.round(generator.predict(latent_data)))
+				if n_species == 1:
+					generated_trajectories = np.expand_dims(generated_trajectories, 1)
+				gen_traj[s_idx, t_idx, :, :] = generated_trajectories
 
 		trajectories = {"ssa":trajectories[:,:,:timesteps,:], "gen": gen_traj}
-		save_to_pickle(data=trajectories, relative_path=RESULTS+self.path+"trajectories/", 
-                       filename="trajectories_"+str(self.n_traj)+".pkl")	
+		self.save_trajectories(data=trajectories)
 		return trajectories
 
+	def save_trajectories(data):
+		filename = "trajectories_"+str(self.n_traj)+".pkl"
+		save_to_pickle(data=data, relative_path=RESULTS+self.path+"trajectories/", 
+			           filename=filename)
+
 	def load_trajectories(self, rel_path):
-		path = rel_path+self.path+"trajectories/trajectories_"+str(self.n_traj)+".pkl"
-		trajectories = load_from_pickle(path=path)
+
+		path = rel_path+self.path+"trajectories/"
+		filename = "trajectories_"+str(self.n_traj)+".pkl"
+		trajectories = load_from_pickle(path=path+filename)
 		print("trajectories['ssa'].shape = ", trajectories["ssa"].shape)
 		print("trajectories['gen'].shape = ", trajectories["gen"].shape)
 		return trajectories
