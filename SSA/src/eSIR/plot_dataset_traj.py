@@ -6,30 +6,32 @@ import os
 import shutil
 from tqdm import tqdm
 import pickle
-
+import matplotlib.pyplot as plt
 
 N = 100 # popul size
 
-filename = "../../data/eSIR/eSIR_training_set.pickle"
-with open(filename, 'rb') as handle:
-    dataset_dict = pickle.load(handle)
+train_filename = "../../data/eSIR/eSIR_training_set_kernel_fixed_param_test.pickle"
+val_filename = "../../data/eSIR/eSIR_validation_set_kernel_fixed_param.pickle"
 
-Y_par = dataset_dict["Y_par"]
-Y_s0 = dataset_dict["Y_s0"]
-X = dataset_dict["X"]
+with open(train_filename, 'rb') as handle:
+    train_set_dict = pickle.load(handle)
+with open(val_filename, 'rb') as handle:
+    val_set_dict = pickle.load(handle)
 
-n_training_points, T, m = X.shape
-_, p = Y_par.shape
-print("T: ", T)
 
-input_trajs =  np.zeros((n_training_points, T, m+1))
-init_states = np.zeros((n_training_points, m+1))
+Y_s0_train = train_set_dict["Y_s0"]
+X_train = train_set_dict["X"]
 
-init_states[:,:m] = Y_s0
-init_states[:,m] = N-Y_s0[:,0]-Y_s0[:,1]
+Y_s0_val = val_set_dict["Y_s0"]
+X_val = val_set_dict["X"]
 
-input_trajs[:,:,:m] = X
-for i in range(n_training_points):
-	input_trajs[i,:,m] = N - X[i,:,0]-X[i,:,1]
+xx_tr = np.squeeze(X_train, 1)
+T = 500
 
-print(init_states[0], input_trajs[0])
+
+for i in range(10):
+	print(Y_s0_train[i*T])
+	plt.hist(xx_tr[i*T:(i+1)*T], bins = 100)
+	name = "train_{}.png".format(i)
+	plt.savefig(name)
+	plt.close()

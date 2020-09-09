@@ -19,9 +19,9 @@ class AbstractionDataset(object):
         self.n_training_points = n_init_states*n_params*n_trajs
         self.state_space_bounds = state_space_bounds
         self.param_space_bounds = param_space_bounds
+        self.global_state_space_dim = global_state_space_dim
         self.state_space_dim = state_space_bounds.shape[0]
         self.param_space_dim = param_space_bounds.shape[0]
-        self.global_state_space_dim = global_state_space_dim      
         self.stoch_mod = stochpy.SSA(IsInteractive=False)
         self.stoch_mod.Model(model_name+'.psc')
         self.directory_name = model_name
@@ -51,62 +51,41 @@ class AbstractionDataset(object):
         return new_data
 
 
-    def set_initial_states(self, init_state):
-        G1_off = int(init_state[0])
-        G1_on = int(init_state[1])
-        G2_off = int(init_state[2])
-        G2_on = int(init_state[3])
-        G3_off = int(init_state[4])
-        G3_on = int(init_state[5])
-        P1 = int(init_state[6])
-        P2 = int(init_state[7])
-        P3 = int(init_state[8])
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G1_on", G1_on)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G1_off", G1_off)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("P1", P1)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G2_on", G2_on)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G2_off", G2_off)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("P2", P2)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G3_on", G3_on)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G3_off", G3_off)
-        self.stoch_mod.ChangeInitialSpeciesCopyNumber("P3", P3)
+    def set_initial_states(self, set_of_init_states):
+        G0 = int(set_of_init_states[0])
+        G1 = int(set_of_init_states[1])
+        M = int(set_of_init_states[2])
+        P = int(set_of_init_states[3])
+        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G0", G0)
+        self.stoch_mod.ChangeInitialSpeciesCopyNumber("G1", G1)
+        self.stoch_mod.ChangeInitialSpeciesCopyNumber("M", M)
+        self.stoch_mod.ChangeInitialSpeciesCopyNumber("P", P)
 
-    def set_parameters(self, params):
-        self.stoch_mod.ChangeParameter("Kp1", params[0])
-        self.stoch_mod.ChangeParameter("Kd1", params[1])
-        self.stoch_mod.ChangeParameter("Kb1", params[2])
-        self.stoch_mod.ChangeParameter("Ku1", params[3])
-        self.stoch_mod.ChangeParameter("Kp2", params[4])
-        self.stoch_mod.ChangeParameter("Kd2", params[5])    
-        self.stoch_mod.ChangeParameter("Kb2", params[6])
-        self.stoch_mod.ChangeParameter("Ku3", params[7])
-        self.stoch_mod.ChangeParameter("Kp3", params[8])
-        self.stoch_mod.ChangeParameter("Kd3", params[9])    
-        self.stoch_mod.ChangeParameter("Kb3", params[10])
-        self.stoch_mod.ChangeParameter("Ku3", params[11])
+
+    def set_parameters(self, set_of_params):
+        self.stoch_mod.ChangeParameter("Kp", set_of_params[0])
+        self.stoch_mod.ChangeParameter("Kt", set_of_params[1])
+        self.stoch_mod.ChangeParameter("Kd1", set_of_params[2])
+        self.stoch_mod.ChangeParameter("Kd2", set_of_params[3])
+        self.stoch_mod.ChangeParameter("Kb", set_of_params[4])
+        self.stoch_mod.ChangeParameter("Ku", set_of_params[5])
+        
 
     def sample_initial_states(self, n_points=None):
-        if n_points == None:
-            n_points = self.n_init_states
-        set_of_init_states = np.ones((n_points,self.state_space_dim+3))
-        for i in range(n_points):
-            g1_on = randint(low = self.state_space_bounds[0,0], high = self.state_space_bounds[0,1])
-            g2_on = randint(low = self.state_space_bounds[1,0], high = self.state_space_bounds[1,1])
-            g3_on = randint(low = self.state_space_bounds[2,0], high = self.state_space_bounds[2,1])
-            p1 = randint(low = self.state_space_bounds[3,0], high = self.state_space_bounds[3,1])
-            p2 = randint(low = self.state_space_bounds[4,0], high = self.state_space_bounds[4,1])            
-            p3 = randint(low = self.state_space_bounds[5,0], high = self.state_space_bounds[5,1])            
-            set_of_init_states[i,:] = np.array([1-g1_on,g1_on,1-g2_on, g2_on, 1-g3_on, g3_on, p1, p2, p3])
+        set_of_init_states = np.ones((self.n_init_states,self.state_space_dim+1))
+        for i in range(self.n_init_states):
+            g_on = randint(low = self.state_space_bounds[0,0], high = self.state_space_bounds[0,1])
+            m = randint(low = self.state_space_bounds[1,0], high = self.state_space_bounds[1,1])
+            p = randint(low = self.state_space_bounds[2,0], high = self.state_space_bounds[2,1])
+            set_of_init_states[i,:] = np.array([1-g_on,g_on, m, p])
     
         return set_of_init_states
 
 
     def sample_parameters_settings(self, n_points=None):
-        if n_points == None:
-            n_points = self.n_params
-        set_of_params = np.zeros((n_points, self.param_space_dim))
+        set_of_params = np.zeros((self.n_params, self.param_space_dim))
         for i in range(self.param_space_dim):
-            set_of_params[:,i] = (self.param_space_bounds[i,1] - self.param_space_bounds[i,0])*random(size=(n_points,))+self.param_space_bounds[i,0]
+            set_of_params[:,i] = (self.param_space_bounds[i,1] - self.param_space_bounds[i,0])*random(size=(self.n_params,))+self.param_space_bounds[i,0]
 
         return set_of_params
 
@@ -114,9 +93,9 @@ class AbstractionDataset(object):
     def generate_training_set(self):
 
         Yp = np.zeros((self.n_training_points,self.param_space_dim))
-        Ys = np.zeros((self.n_training_points,self.global_state_space_dim))
+        Ys = np.zeros((self.n_training_points,self.state_space_dim))
 
-        X = np.zeros((self.n_training_points, int(self.T/self.time_step), self.global_state_space_dim))
+        X = np.zeros((self.n_training_points, int(self.T/self.time_step), self.state_space_dim))
 
 
         set_of_params = self.sample_parameters_settings()
@@ -129,7 +108,6 @@ class AbstractionDataset(object):
                 self.set_initial_states(initial_states[i,:])
 
                 
-
                 for k in range(self.n_trajs):
                     self.stoch_mod.DoStochSim(method="Direct", trajectories=self.n_trajs, mode="time", end=self.T)
                 
@@ -138,52 +116,16 @@ class AbstractionDataset(object):
                     datapoint = pd.read_table(filepath_or_buffer=self.directory_name+'/'+self.directory_name+'.psc_species_timeseries1.txt', delim_whitespace=True, header=1).drop(labels="Reaction", axis=1).drop(labels='Fired', axis=1).as_matrix()
                     
                     new_datapoint = self.time_resampling(datapoint)
-                    X[count,:,:] = new_datapoint[1:,1:]
+                    X[count,:,:] = new_datapoint[1:,1:self.state_space_dim+1]
                     Yp[count,:] = set_of_params[p,:]
-                    Ys[count,:] = initial_states[i]
-                    
+                    Ys[count,:] = initial_states[i,:self.state_space_dim]
+
                     count += 1
 
         self.X = X
         self.Y_par = Yp
         self.Y_s0 = Ys
         self.Y = np.hstack((Yp,Ys))
-
-    def generate_validation_set(self, n_val_points, n_val_trajs_per_point):
-
-        Yp = np.zeros((n_val_points,self.param_space_dim))
-        Ys = np.zeros((n_val_points,self.global_state_space_dim))
-
-        X = np.zeros((n_val_points,  n_val_trajs_per_point,int(self.T/self.time_step), self.global_state_space_dim))
-
-
-        set_of_params = self.sample_parameters_settings(n_val_points)
-        initial_states = self.sample_initial_states(n_val_points)
-            
-        for ind in range(n_val_points):
-            self.set_parameters(set_of_params[ind,:])
-            self.set_initial_states(initial_states[ind,:])
-
-            Yp[ind,:] = set_of_params[ind]
-            Ys[ind,:] = initial_states[ind]
-                
-            for k in range(n_val_trajs_per_point):
-                if k%100 == 0:
-                    print(ind, "/", n_val_points, "------------------K iter: ", k, "/", n_val_trajs_per_point)
-                
-                self.stoch_mod.DoStochSim(method="Direct", trajectories=1, mode="time", end=self.T)
-                self.stoch_mod.Export2File(analysis='timeseries', datatype='species', IsAverage=False, directory=self.directory_name, quiet=False)
-
-                datapoint = pd.read_table(filepath_or_buffer=self.directory_name+'/'+self.directory_name+'.psc_species_timeseries1.txt', delim_whitespace=True, header=1).drop(labels="Reaction", axis=1).drop(labels='Fired', axis=1).as_matrix()
-                
-                new_datapoint = self.time_resampling(datapoint)
-                X[ind,k,:,:] = new_datapoint[1:,1:self.global_state_space_dim+1]
-            
-        self.X = X
-        self.Y_par = Yp
-        self.Y_s0 = Ys
-        self.Y = np.hstack((Yp,Ys))
-
 
 
     def save_dataset(self, filename):
@@ -199,22 +141,23 @@ def run_training():
     n_params = 50
     n_trajs = 3
 
-    state_space_dim = 6
-    param_space_dim = 12
+    state_space_dim = 3
+    param_space_dim = 6
+    global_state_space_dim = state_space_dim + 1
 
     time_step = 0.1
-    n_steps = 128
+    n_steps = 64#128
     T = n_steps*time_step
-    global_state_space_dim = state_space_dim+3
+
+    param_space_bounds = np.array([[200,500], [200,500], [0.001,0.1], [0.1,5], [0.1,5], [100,200]])
+    state_space_bounds = np.array([[0,2], [0,5], [400, 799]])
+
+    grn_dataset = AbstractionDataset(n_init_states, n_params, n_trajs, state_space_bounds, param_space_bounds, 'GRN', time_step, T, global_state_space_dim)
+
+    grn_dataset.generate_training_set()
+    grn_dataset.save_dataset("../../data/GRN/GRN_training_set.pickle")
 
 
-    param_space_bounds = np.array([[50,150], [0.1,5], [0.0001,0.001], [0.1,1],[50,150], [0.1,5], [0.0001,0.001], [0.1,1],[50,150], [0.1,5], [0.0001,0.001], [0.1,1]])
-    state_space_bounds = np.array([[0,2], [0,2], [0,2], [5,20], [5, 20], [5, 20]])
-
-    repr_dataset = AbstractionDataset(n_init_states, n_params, n_trajs, state_space_bounds, param_space_bounds, 'Repressilator', time_step, T, global_state_space_dim)
-
-    repr_dataset.generate_training_set()
-    repr_dataset.save_dataset("../../data/Repressilator/Repressilator_training_set_full.pickle")
 
 
 def run_validation():
@@ -222,25 +165,31 @@ def run_validation():
     n_params = 0
     n_trajs = 0
 
-    state_space_dim = 6
-    global_state_space_dim = state_space_dim + 3
+    state_space_dim = 3
+    param_space_dim = 6
+    global_state_space_dim = state_space_dim + 1
 
     param_space_dim = 8
 
-    time_step = 0.1
-    n_steps = 128
+    time_step = 1
+    n_steps = 64#128
     T = n_steps*time_step
 
     n_val_points = 20
     n_trajs_per_point = 2000
 
-    param_space_bounds = np.array([[50,150], [0.1,5], [0.0001,0.001], [0.1,1],[50,150], [0.1,5], [0.0001,0.001], [0.1,1],[50,150], [0.1,5], [0.0001,0.001], [0.1,1]])
-    state_space_bounds = np.array([[0,2], [0,2], [0,2], [5,20], [5, 20], [5, 20]])
+    param_space_bounds = np.array([[200,500], [200,500], [0.001,0.1], [0.1,5], [0.1,5], [100,200]])
+    state_space_bounds = np.array([[0,2], [0,5], [400, 799]])
 
-    repr_dataset = AbstractionDataset(n_init_states, n_params, n_trajs, state_space_bounds, param_space_bounds, 'Repressilator', time_step, T, global_state_space_dim)
+    grn_dataset = AbstractionDataset(n_init_states, n_params, n_trajs, state_space_bounds, param_space_bounds, 'GRN', time_step, T, global_state_space_dim)
 
-    repr_dataset.generate_validation_set(n_val_points, n_trajs_per_point)
-    repr_dataset.save_dataset("../../data/Repressilator/Repressilator_validation_set_full.pickle")
+    grn_dataset.generate_training_set()
+    grn_dataset.save_dataset("../../data/GRN/GRN_validation_set.pickle")
 
+
+run_training()
 
 run_validation()
+
+
+

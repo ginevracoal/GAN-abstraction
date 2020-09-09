@@ -145,11 +145,11 @@ def run_training():
     param_space_dim = 6
     global_state_space_dim = state_space_dim + 1
 
-    time_step = 1
-    n_steps = 128
+    time_step = 0.1
+    n_steps = 64#128
     T = n_steps*time_step
 
-    param_space_bounds = np.array([[200,500], [200,500], [0.00001,0.1], [0.1,5], [0.1,5], [100,200]])
+    param_space_bounds = np.array([[200,500], [200,500], [0.001,0.1], [0.1,5], [0.1,5], [100,200]])
     state_space_bounds = np.array([[0,2], [0,5], [400, 799]])
 
     grn_dataset = AbstractionDataset(n_init_states, n_params, n_trajs, state_space_bounds, param_space_bounds, 'GRN', time_step, T, global_state_space_dim)
@@ -172,13 +172,13 @@ def run_validation():
     param_space_dim = 8
 
     time_step = 1
-    n_steps = 128
+    n_steps = 64#128
     T = n_steps*time_step
 
     n_val_points = 20
     n_trajs_per_point = 2000
 
-    param_space_bounds = np.array([[200,500], [200,500], [0.00001,0.1], [0.1,5], [0.1,5], [100,200]])
+    param_space_bounds = np.array([[200,500], [200,500], [0.001,0.1], [0.1,5], [0.1,5], [100,200]])
     state_space_bounds = np.array([[0,2], [0,5], [400, 799]])
 
     grn_dataset = AbstractionDataset(n_init_states, n_params, n_trajs, state_space_bounds, param_space_bounds, 'GRN', time_step, T, global_state_space_dim)
