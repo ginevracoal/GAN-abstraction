@@ -4,7 +4,11 @@
 
 Luca Bortolussi, Francesca Cairoli, Ginevra Carbone.
 
-- `SSA/` implements the simulation of CRN trajectories
-- `GAN/` builds the abstraction of the generation of trajectories using conditional GAN (c-GAN)
-- `WGAN/` builds the abstraction of the generation of trajectories using conditional Wasserstein GAN (c-WGAN)
-- `GAN-KERNEL/` builds the abstraction of the transition kernel of a CRN using conditional GAN (c-GAN)
+The code containing the experiments and the results presented at the TACAS 21 conference are located in the `TACAS_21` folder.
+The folder is organized as follows:
+- `Dataset_Generation` folder that contains the scripts to generate the datasets through SSA simulation (based on Stochpy library)
+- `WGAN_for_Trajectories` folder that contains the implementation of teh c-WCGAN with either fixed parameters (`class WGAN_MA_fixed_param`) or with an arbitrary number of varying parameters (`class WGAN_MA`).
+
+The datasets used are shared at the following link: https://www.dropbox.com/home/Datasets%20for%20GAN-abstraction
+
+
