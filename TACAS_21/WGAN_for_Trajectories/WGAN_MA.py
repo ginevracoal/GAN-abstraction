@@ -43,9 +43,10 @@ class ClipConstraint(Constraint):
 
 class WGAN_MA(object):
 
-	def __init__(self, model_name, noise_dim, state_dim, traj_len, labels, colors):
+	def __init__(self, model_name, noise_dim, state_dim, param_dim, traj_len, labels, colors):
 		self.noise_dim = noise_dim
 		self.state_dim = state_dim
+		self.param_dim = param_dim
 		self.traj_len = traj_len
 		self.labels = labels
 		self.colors = colors
@@ -100,6 +101,15 @@ class WGAN_MA(object):
 	def define_critic(self):
 		
 		traj = Input(shape=(self.traj_len+1, self.state_dim)) 
+		par = Input(shape=(self.param_dim,))
+		
+		if self.embedding == "DENSE":
+			p = Dense(self.traj_len+1)(par)
+			p = Reshape((self.traj_len+1,1))(p)
+		else:
+			p = RepeatVector(self.traj_len+1)(par)
+
+		inputs = Concatenate(axis=2)([traj, p])
 
 		HC = [64, 64]
 		KC = [4, 4]
@@ -107,7 +117,7 @@ class WGAN_MA(object):
 		# weight constraint
 		const = ClipConstraint(self.clip_const)
 		# downsample 
-		x = Conv1D(HC[0], KC[0], strides=SC[0], padding='same', kernel_constraint=const)(traj)
+		x = Conv1D(HC[0], KC[0], strides=SC[0], padding='same', kernel_constraint=const)(inputs)
 		x = BatchNormalization()(x)
 		x = LeakyReLU(alpha=0.2)(x)
 		# downsample 
@@ -119,7 +129,7 @@ class WGAN_MA(object):
 		x = Flatten()(x)
 		outputs = Dense(1)(x)
 
-		model = Model(inputs=traj, outputs=outputs)
+		model = Model(inputs=[traj, par], outputs=outputs)
 
 		# compile model
 		opt = RMSprop(lr=self.c_lr)
@@ -140,14 +150,19 @@ class WGAN_MA(object):
 
 		init_states = Input(shape=(self.state_dim))
 		
+		par = Input(shape=(self.param_dim,))
+
 		if self.embedding== "DENSE":
 			n_nodes_i = self.q * 1
 			iv = Dense(n_nodes_i)(init_states)
 			iv = Reshape((self.q, 1))(iv)
+			pv = Dense(n_nodes_i)(par)
+			pv = Reshape((self.q, 1))(pv)
 		else:
 			iv = RepeatVector(self.q)(init_states)
+			pv = RepeatVector(self.q)(par)
 
-		merge = Concatenate(axis=2)([iv,nv])
+		merge = Concatenate(axis=2)([iv, pv, nv])
 
 		HG = [128, 256, 256, 128]
 		KG = [4, 4, 4, 4, 4]
@@ -175,7 +190,7 @@ class WGAN_MA(object):
 		outputs = Conv1D(self.state_dim, KG[-1], activation='tanh', padding='same')(x)
 		print("GEN OUTPUT: ", outputs)
 
-		model = Model(inputs=[noise,init_states], outputs=outputs)
+		model = Model(inputs=[noise,init_states,par], outputs=outputs)
 
 		self.arch_gen = 'G_ARCH: H={}, K={}, S={}+LeakyRelu02'.format(HG, KG, SG)
 		print(self.arch_gen)
@@ -187,15 +202,15 @@ class WGAN_MA(object):
 	def define_gan(self):
 		# make weights in the critic not trainable
 		self.critic.trainable = False
-		noise, init_states = self.generator.input
+		noise, init_states, par = self.generator.input
 		gen_traj = self.generator.output
 
 		in_st = Reshape((1,self.state_dim))(init_states)
 		merged_traj = Concatenate(axis=1)([in_st, gen_traj])
 
-		gan_output = self.critic(merged_traj)
+		gan_output = self.critic([merged_traj,par])
 
-		model = Model(inputs=[noise, init_states], outputs=gan_output)
+		model = Model(inputs=[noise, init_states, par], outputs=gan_output)
 
 		# compile model
 		opt = RMSprop(lr=self.g_lr)
@@ -221,17 +236,21 @@ class WGAN_MA(object):
 		# select all of the examples for a given class
 		X = data["X"][:,:self.traj_len,:]
 		T = data["Y_s0"]
+		par = data["Y_par"][:,:1]
 
 		# convert from ints to floats
 		X = X.astype('float32')
 		T = T.astype('float32')
+		par = par.astype('float32')
 
 		self.HMAX = np.max(np.max(X, axis = 0),axis=0)/2
+		self.PMAX = np.max(par, axis = 0)/2
 
 		self.n_points_dataset = X.shape[0]
 		# scale to [-1,1]
 		self.X_train = (X-self.HMAX)/self.HMAX
 		self.T_train = (T-self.HMAX)/self.HMAX
+		self.P_train = (par-self.PMAX)/self.PMAX
 
 	def load_test_data(self):
 		
@@ -243,12 +262,16 @@ class WGAN_MA(object):
 
 		X_val = val_data["X"][:,:,:self.traj_len,:]
 		T_val = val_data["Y_s0"]
+		par_val = val_data["Y_par"][:,:1]
+
 		X_val = X_val.astype('float32')
 		T_val = T_val.astype('float32')
+		par_val = par_val.astype('float32')
 		# scale to [-1,1]
 		self.X_val = (X_val-self.HMAX)/self.HMAX
 		self.T_val = (T_val-self.HMAX)/self.HMAX
-		
+		self.P_val = (par_val-self.PMAX)/self.PMAX
+
 	# select real samples
 	def generate_real_samples(self, n_samples):
 		
@@ -256,16 +279,19 @@ class WGAN_MA(object):
 		# select datas
 		Xb = self.X_train[ix]
 		Tb = self.T_train[ix]
+		Pb = self.P_train[ix]
 		# generate class labels, -1 for 'real'
 		yb = -ones((n_samples, 1))
-		return Xb, Tb, yb, ix
+		return Xb, Tb, Pb, yb, ix
 
 	# generate points in latent space as input for the generator
 	def generate_latent_points(self, n_samples,  phase, ix = []):
 		if phase == "D":
 			t_input = self.T_train[ix]
+			p_input = self.P_train[ix]
 		elif phase == "G":	
-			t_input = (rand(int(n_samples),self.state_dim)-0.5)*2	
+			t_input = (rand(int(n_samples),self.state_dim)-0.5)*2
+			p_input = (rand(int(n_samples),self.param_dim)-0.5)*2	
 		else:
 			print("ERROR!!")
 
@@ -273,7 +299,7 @@ class WGAN_MA(object):
 		z_input = randn(self.noise_dim * n_samples)
 		# reshape into a batch of inputs for the network
 		z_input = z_input.reshape(n_samples, self.noise_dim)
-		return z_input, t_input, ix
+		return z_input, t_input, p_input, ix
 
 	def generate_noise(self, n_samples):
 		# generate points in the latent space
@@ -282,34 +308,35 @@ class WGAN_MA(object):
 		z_input = z_input.reshape(n_samples, self.noise_dim)
 		return z_input
 
-	def generate_cond_fake_samples(self, initial_state, n_samples):
+	def generate_cond_fake_samples(self, selected_initial_state, selected_par, n_samples):
 		# generate points in latent space
 		z_input = self.generate_noise(n_samples)
 		# predict outputs
-		initial_state_rep = initial_state*np.ones((n_samples,self.state_dim))
-		
-		X_gen = self.generator.predict([z_input, initial_state_rep])
+		initial_state_rep = selected_initial_state*np.ones((n_samples,self.state_dim))
+		par_rep = selected_par*np.ones((n_samples,self.param_dim))
+
+		X_gen = self.generator.predict([z_input, initial_state_rep, par_rep])
 		
 		return X_gen
 
 	# use the generator to generate n fake examples, with class labels
 	def generate_fake_samples(self, n_samples, phase, ret_ind = False, ix = []):
 		# generate points in latent space
-		z_input, t_input, idx = self.generate_latent_points(n_samples, phase, ix = ix)
+		z_input, t_input, p_input, idx = self.generate_latent_points(n_samples, phase, ix = ix)
 		# predict outputs
-		X = self.generator.predict([z_input, t_input])
+		X = self.generator.predict([z_input, t_input, p_input])
 		# create class labels with 1.0 for 'fake'
 		y = ones((n_samples, 1))
 		if ret_ind:
-			return X, t_input, idx 
+			return X, t_input, p_input, idx 
 		else:
-			return X, t_input, y
+			return X, t_input, p_input, y
 
 	# generate samples and save as a plot and save the model
 	def summarize_performance(self, step, n_samples=4):
 
 		# prepare fake examples
-		X_fake, t_input, idx = self.generate_fake_samples(n_samples, phase="D", ret_ind = True, ix = randint(0, self.X_train.shape[0], n_samples))
+		X_fake, t_input, p_input, idx = self.generate_fake_samples(n_samples, phase="D", ret_ind = True, ix = randint(0, self.X_train.shape[0], n_samples))
 		X_real = self.X_train[idx]
 
 		# plot images
@@ -326,14 +353,14 @@ class WGAN_MA(object):
 					pyplot.plot(xxx, complete_traj_fake[:, spec], label=self.labels[spec], color = self.colors[spec])
 					pyplot.plot(xxx, complete_traj_real[:, spec], '--', label=self.labels[spec], color = self.colors[spec])
 					
-				# save plot to file
-				filename1 = self.PLOTS_PATH+'/generated_plot_%04d.png' % (step+1)
-				pyplot.legend()
-				pyplot.savefig(filename1)
-				pyplot.close()
-				
-				filename2 = self.MODELS_PATH+'/gen_model_%04d.h5' % (step+1)
-				self.generator.save(filename2)
+			# save plot to file
+			filename1 = self.PLOTS_PATH+'/generated_plot_%04d.png' % (step+1)
+			pyplot.legend()
+			pyplot.savefig(filename1)
+			pyplot.close()
+			
+			filename2 = self.MODELS_PATH+'/gen_model_%04d.h5' % (step+1)
+			self.generator.save(filename2)
 
 	# create a line plot of loss for the gan and save to file
 	def plot_history(self,d1_hist, d2_hist, g_hist):
@@ -379,18 +406,18 @@ class WGAN_MA(object):
 			c1_tmp, c2_tmp = list(), list()
 			for _ in range(self.n_critic):
 				# get randomly selected 'real' samples
-				X_real, t_real, y_real, idx = self.generate_real_samples(half_batch)
+				X_real, t_real, p_real, y_real, idx = self.generate_real_samples(half_batch)
 				# update critic model weights
 				t_real = tf.reshape(t_real, (half_batch,1, self.state_dim))
 				real_traj = tf.concat([t_real, X_real], axis = 1)
-				c_loss1 = self.critic.train_on_batch(real_traj, y_real)
+				c_loss1 = self.critic.train_on_batch([real_traj, p_real], y_real)
 				c1_tmp.append(c_loss1)
 				# generate 'fake' examples
-				X_fake, t_fake, y_fake = self.generate_fake_samples(half_batch, phase="D", ix = idx)
+				X_fake, t_fake, p_fake, y_fake = self.generate_fake_samples(half_batch, phase="D", ix = idx)
 				# update critic model weights
 				t_fake = tf.reshape(t_fake, (half_batch,1, self.state_dim))
 				fake_traj = tf.concat([t_fake, X_fake], axis = 1)
-				c_loss2 = self.critic.train_on_batch(fake_traj, y_fake)
+				c_loss2 = self.critic.train_on_batch([fake_traj, p_fake], y_fake)
 				c2_tmp.append(c_loss2)
 			# store critic loss
 			c1_hist.append(mean(c1_tmp))
@@ -399,11 +426,11 @@ class WGAN_MA(object):
 			g_tmp = list()
 			for _ in range(self.n_gen):
 				# prepare points in latent space as input for the generator
-				X_gan, t_gan, _ = self.generate_latent_points(self.batch_size, phase="G")
+				Z_gan, t_gan, p_gan, _ = self.generate_latent_points(self.batch_size, phase="G")
 				# create inverted labels for the fake samples
 				y_gan = -ones((self.batch_size, 1))
 				# update the generator via the critic's error
-				g_loss = self.gan.train_on_batch([X_gan, t_gan], y_gan)
+				g_loss = self.gan.train_on_batch([Z_gan, t_gan, p_gan], y_gan)
 				g_tmp.append(g_loss)
 
 			g_hist.append(mean(g_tmp))
@@ -422,13 +449,13 @@ class WGAN_MA(object):
 		
 		traj_per_state = self.X_val.shape[1]
 
-		print(f"\nComputing trajectories on {len(self.T_val)} initial states")
+		print(f"\nComputing trajectories on {len(self.T_val)} initial settings")
 		gen_trajectories = np.empty(shape=(len(self.T_val), traj_per_state, self.traj_len, self.state_dim))
 
-		for s, init_state in enumerate(self.T_val):
-			print("\tinit_state = ", init_state)
+		for s in range(len(self.T_val)):
+			print("\tinit_state = ", self.T_val[s]," param = ", self.P_val[s])
 			
-			gen_traj = self.generate_cond_fake_samples(init_state, traj_per_state)
+			gen_traj = self.generate_cond_fake_samples(self.T_val[s], self.P_val[s], traj_per_state)
 
 			gen_trajectories[s, :, :, :] = gen_traj			
 			
@@ -446,25 +473,26 @@ class WGAN_MA(object):
 
 		traj_per_state = 20000	
 		
-		for s, init_state in enumerate(self.T_val):
-			print("\tinit_state = ", init_state)
+		for s in range(len(self.T_val)):
+			print("\tinit_state = ", self.T_val[s]," param = ", self.P_val[s])
 			start_time = time.time()
-			gen_traj = self.generate_cond_fake_samples(init_state, traj_per_state)
+			gen_traj = self.generate_cond_fake_samples(self.T_val[s], self.P_val[s], traj_per_state)
 			print(time.time()-start_time)
 	
 
 	def plot_validation_trajectories(self):
 		import seaborn as sns 
 		
-		n_init_states, traj_per_state, n_timesteps, n_species = self.X_val.shape
+		n_val_settings, traj_per_state, n_timesteps, n_species = self.X_val.shape
 		gen_trajectories_unscaled = np.round((self.gen_trajectories+1)*self.HMAX)
 		ssa_trajectories_unscaled = np.round((self.X_val+1)*self.HMAX)
-		for init_state in range(n_init_states):
+		
+		for ii in range(n_val_settings):
 
 			fig, ax = pyplot.subplots(self.state_dim,1,figsize=(12,self.state_dim*3))
 
-			ssa_fixed_init = ssa_trajectories_unscaled[init_state]
-			gen_fixed_init = gen_trajectories_unscaled[init_state]
+			ssa_fixed_init = ssa_trajectories_unscaled[ii]
+			gen_fixed_init = gen_trajectories_unscaled[ii]
 			for s in range(self.state_dim):
 
 				for traj_idx in range(5):
@@ -474,13 +502,13 @@ class WGAN_MA(object):
 					ax[s].set_ylabel(self.labels[s])
 
 
-			fig.savefig(self.PLOTS_PATH+"/"+self.MODEL_NAME+"_Trajectories"+str(init_state)+".png")
+			fig.savefig(self.PLOTS_PATH+"/"+self.MODEL_NAME+"_Trajectories"+str(ii)+".png")
 			pyplot.close()
 
 
 	def plot_last_step_histogram(self):
 		
-		n_init_states, traj_per_state, n_timesteps, n_species = self.X_val.shape
+		n_val_settings, traj_per_state, n_timesteps, n_species = self.X_val.shape
 		
 		gen_trajectories_unscaled = np.round((self.gen_trajectories+1)*self.HMAX)
 		ssa_trajectories_unscaled = np.round((self.X_val+1)*self.HMAX)
@@ -489,7 +517,7 @@ class WGAN_MA(object):
 		leg = ['real', 'gen']
 		bins = 50
 		
-		for s, init_state in enumerate(self.T_val):
+		for s in range(n_val_settings):
 			fig, ax = pyplot.subplots(self.state_dim,1, figsize = (12,self.state_dim*3))
 			for spec in range(self.state_dim):
 				XXX = np.vstack((ssa_trajectories_unscaled[s,:,-1,spec], gen_trajectories_unscaled[s,:,-1,spec])).T
@@ -506,17 +534,17 @@ class WGAN_MA(object):
 
 	def compute_distances(self):
 		
-		n_init_states, traj_per_state, n_timesteps, n_species = self.X_val.shape
+		n_val_settings, traj_per_state, n_timesteps, n_species = self.X_val.shape
 
 		gen_trajectories_unscaled = np.round((self.gen_trajectories+1)*self.HMAX)
 		ssa_trajectories_unscaled = np.round((self.X_val+1)*self.HMAX)
 		
-		print(f"\nComputing histograms on {len(self.T_val)} initial states")
+		print(f"\nComputing histograms on {n_val_settings} val settings")
 		
-		dist = np.zeros(shape=(len(self.T_val), self.traj_len, self.state_dim))
+		dist = np.zeros(shape=(n_val_settings, self.traj_len, self.state_dim))
 		XMAX = np.max(self.HMAX*2)
-		for s, init_state in enumerate(self.T_val):
-			print("\tinit_state = ", init_state)
+		for s in range(n_val_settings):
+			print("\tinit_state = ", self.T_val[s]," param = ", self.P_val[s])
 			for t in range(self.traj_len):
 				for m in range(self.state_dim):
 					A = ssa_trajectories_unscaled[s,:,t,m]
@@ -533,7 +561,7 @@ class WGAN_MA(object):
 		markers = ['--','-.',':']
 		fig = pyplot.figure()
 		for spec in range(self.state_dim):
-			pyplot.plot(np.arange(self.traj_len), avg_dist[:, spec], markers[spec], self.labels[spec])
+			pyplot.plot(np.arange(self.traj_len), avg_dist[:, spec], markers[spec], label=self.labels[spec])
 		pyplot.legend()
 		pyplot.xlabel("time")
 		pyplot.ylabel("wass dist")
